@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env python3
 import subprocess
 import re
 import sys
@@ -29,7 +29,6 @@ def run_command(command, timeout=5):
         return "", str(e), -1
 
 def run_command_stream(command, timeout=10):
-    import shlex
     proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1,
                             preexec_fn=os.setsid)
@@ -85,6 +84,13 @@ def get_netmask(ifname):
     finally:
         s.close()
 
+def get_mac_address(ifname):
+    try:
+        with open(f"/sys/class/net/{ifname}/address", "r") as f:
+            return f.read().strip()
+    except Exception:
+        return "N/A"
+
 def netmask_to_cidr(netmask):
     try:
         parts = netmask.split('.')
@@ -96,6 +102,15 @@ def netmask_to_cidr(netmask):
 def check_internet():
     _, _, rc = run_command("ping -c 1 -W 2 8.8.8.8")
     return rc == 0
+
+def get_public_ip():
+    out, _, rc = run_command("curl -s --max-time 3 ifconfig.me", timeout=3)
+    if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+        return out
+    out, _, rc = run_command("curl -s --max-time 3 api.ipify.org", timeout=3)
+    if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+        return out
+    return "Unknown"
 
 def get_connection_method(iface):
     con_name = get_active_connection_name()
@@ -121,11 +136,13 @@ def get_network_info():
     if iface:
         info['ip_client'] = get_ip_address(iface)
         info['netmask'] = get_netmask(iface)
+        info['mac_address'] = get_mac_address(iface)
         info['connection_status'] = "Connected" if info.get('ip_client') else "Not connected"
         info['method'] = get_connection_method(iface)
     else:
         info['ip_client'] = None
         info['netmask'] = None
+        info['mac_address'] = "N/A"
         info['connection_status'] = "Not connected"
         info['method'] = "Unknown"
     info['ssid'] = "Unknown"
@@ -136,6 +153,7 @@ def get_network_info():
         else:
             info['ssid'] = "Unknown"
     info['internet_status'] = "Access internet" if check_internet() else "Not internet"
+    info['public_ip'] = get_public_ip() if check_internet() else "Unknown"
     return info
 
 def display_network_info(info):
@@ -144,10 +162,34 @@ def display_network_info(info):
     print(f"  Interface           : {info.get('interface','?')}")
     print(f"  Method              : {info.get('method','?')}")
     print(f"  IP Client           : {info.get('ip_client','?')}")
+    print(f"  Mac Address         : {info.get('mac_address','?')}")
     print(f"  Subnet Mask         : {info.get('netmask','?')}")
     print(f"  Gateway / IP Router : {info.get('gateway','?')}")
+    print(f"  IP Public           : {info.get('public_ip','?')}")
     print(f"  Connection status   : {info.get('connection_status','?')}")
     print(f"  Internet state      : {info.get('internet_status','?')}")
+
+def get_nic_hardware_info(iface):
+    info = {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A'}
+    ethtool_out, _, _ = run_command(f"ethtool -i {iface} 2>/dev/null")
+    if ethtool_out:
+        for line in ethtool_out.splitlines():
+            if line.startswith("driver:"):
+                info['driver'] = line.split(':')[1].strip()
+            elif line.startswith("bus-info:"):
+                info['bus'] = line.split(':')[1].strip()
+    bus = info['bus']
+    if bus and bus != 'N/A':
+        lspci_out, _, _ = run_command(f"lspci -v -s {bus} 2>/dev/null")
+        if lspci_out:
+            first_line = lspci_out.splitlines()[0]
+            vendor_device = ' '.join(first_line.split()[1:])
+            info['vendor_device'] = vendor_device
+        else:
+            info['vendor_device'] = 'N/A'
+    else:
+        info['vendor_device'] = 'N/A'
+    return info
 
 def get_device_info():
     info = {}
@@ -210,11 +252,13 @@ def get_device_info():
             iface = iface.strip()
             mac, _, _ = run_command(f"cat /sys/class/net/{iface}/address 2>/dev/null")
             speed, _, _ = run_command(f"cat /sys/class/net/{iface}/speed 2>/dev/null")
-            drv_out, _, _ = run_command(f"ethtool -i {iface} 2>/dev/null | grep '^driver:' | awk '{{print $2}}'")
+            hw = get_nic_hardware_info(iface)
             mac = mac if mac else "N/A"
             speed = f"{speed} Mbps" if speed and speed.strip() != '-1' else "N/A"
-            driver = drv_out if drv_out else "N/A"
-            info['nics'].append({'name': iface, 'mac': mac, 'speed': speed, 'driver': driver})
+            driver = hw['driver']
+            bus = hw['bus']
+            vendor_device = hw['vendor_device']
+            info['nics'].append({'name': iface, 'mac': mac, 'speed': speed, 'driver': driver, 'bus': bus, 'vendor_device': vendor_device})
 
     usb_out, _, _ = run_command("lsusb")
     if usb_out:
@@ -223,6 +267,34 @@ def get_device_info():
             info['usb_devices'].append(line.strip())
     else:
         info['usb_devices'] = []
+
+    os_release, _, _ = run_command("cat /etc/os-release 2>/dev/null")
+    info['os_distro'] = "Unknown"
+    info['os_version'] = "Unknown"
+    if os_release:
+        for line in os_release.splitlines():
+            if line.startswith("PRETTY_NAME="):
+                info['os_distro'] = line.split('=')[1].strip('"')
+                break
+    kernel, _, _ = run_command("uname -r")
+    info['kernel_version'] = kernel if kernel else "Unknown"
+    arch, _, _ = run_command("uname -m")
+    info['architecture'] = arch if arch else "Unknown"
+    de, _, _ = run_command("echo $XDG_CURRENT_DESKTOP")
+    info['desktop_environment'] = de if de else "Unknown"
+    init_system, _, _ = run_command("ps --no-headers -o comm 1")
+    info['init_system'] = init_system if init_system else "Unknown"
+
+    bios_vendor, _, _ = run_command("cat /sys/class/dmi/id/bios_vendor 2>/dev/null")
+    info['bios_vendor'] = bios_vendor if bios_vendor else "Unknown"
+    bios_version, _, _ = run_command("cat /sys/class/dmi/id/bios_version 2>/dev/null")
+    info['bios_version'] = bios_version if bios_version else "Unknown"
+    bios_date, _, _ = run_command("cat /sys/class/dmi/id/bios_date 2>/dev/null")
+    info['bios_date'] = bios_date if bios_date else "Unknown"
+    mb_vendor, _, _ = run_command("cat /sys/class/dmi/id/board_vendor 2>/dev/null")
+    info['mb_vendor'] = mb_vendor if mb_vendor else "Unknown"
+    mb_model, _, _ = run_command("cat /sys/class/dmi/id/board_name 2>/dev/null")
+    info['mb_model'] = mb_model if mb_model else "Unknown"
 
     return info
 
@@ -254,7 +326,9 @@ def display_device_info(info):
     if nics:
         print(f"  NIC                 :")
         for n in nics:
-            print(f"                        {n['name']} MAC:{n['mac']} Speed:{n['speed']} Driver:{n['driver']}")
+            print(f"                        {n['name']}  MAC:{n['mac']}  Speed:{n['speed']}")
+            print(f"                        Driver: {n['driver']}  Bus: {n['bus']}")
+            print(f"                        Vendor/Device: {n['vendor_device']}")
     else:
         print(f"  NIC                 : -")
     usbs = info.get('usb_devices', [])
@@ -264,6 +338,14 @@ def display_device_info(info):
             print(f"                        {u}")
     else:
         print(f"  Perangkat USB       : -")
+    print(f"  System Information  :")
+    print(f"  OS                  : {info.get('os_distro','?')}")
+    print(f"  Kernel              : {info.get('kernel_version','?')}")
+    print(f"  Architecture        : {info.get('architecture','?')}")
+    print(f"  Desktop Environment : {info.get('desktop_environment','?')}")
+    print(f"  Init System         : {info.get('init_system','?')}")
+    print(f"  BIOS                : {info.get('bios_vendor','?')} {info.get('bios_version','?')} ({info.get('bios_date','?')})")
+    print(f"  Motherboard         : {info.get('mb_vendor','?')} {info.get('mb_model','?')}")
 
 def ping_target(target, count=4):
     rc = run_command_stream(f"ping -c {count} -W 2 {target}")
@@ -271,7 +353,6 @@ def ping_target(target, count=4):
         pass
     else:
         print(f"Failed: no response or error")
-
     print()
 
 def get_active_connection_name():
@@ -322,10 +403,16 @@ def ubah_ip_menu():
     if not ip:
         print("IP address cannot be empty.")
         return
-    netmask = questionary.text("Enter subnet mask:").ask()
+
+    default_netmask = get_netmask(iface)
+    prompt_netmask = f"Enter subnet mask (leave blank for {default_netmask}):" if default_netmask else "Enter subnet mask:"
+    netmask = questionary.text(prompt_netmask).ask()
     if not netmask:
-        print("Subnet mask cannot be empty.")
+        netmask = default_netmask
+    if not netmask:
+        print("Subnet mask cannot be determined.")
         return
+
     gw = questionary.text(f"Enter gateway (leave blank for {gateway}):").ask()
     if not gw:
         gw = gateway
@@ -449,6 +536,7 @@ def main():
                 "Ping DNS (8.8.8.8)",
                 "Ping Google (google.com)",
                 "Ping Router / Gateway",
+                "Ping Between Router",
                 "Ping Between Clients",
                 "Change IP (Static / Dynamic)",
                 "Check IP Addresses of All Clients on the Network",
@@ -475,6 +563,12 @@ def main():
                 ping_target(gw)
             else:
                 print("Unknown")
+        elif pilihan == "Ping Between Router":
+            target = questionary.text("Enter router IP address:").ask()
+            if target:
+                ping_target(target)
+            else:
+                print("IP address required.")
         elif pilihan == "Ping Between Clients":
             target = questionary.text("Enter target IP address:").ask()
             if target:
