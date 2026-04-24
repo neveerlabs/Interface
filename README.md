@@ -1,6 +1,6 @@
 <div align="center">
 
-# Interface
+### Interface
 
 **Alat Bantu Pengujian Jaringan & Spesifikasi Perangkat**  
 Dikembangkan dari seorang siswa untuk Uji Kompetensi Keahlian (UKK) Teknik Komputer & Jaringan (TKJ)  
