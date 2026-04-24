@@ -139,12 +139,18 @@ def get_network_info():
         info['mac_address'] = get_mac_address(iface)
         info['connection_status'] = "Connected" if info.get('ip_client') else "Not connected"
         info['method'] = get_connection_method(iface)
+        v6_out, _, _ = run_command(f"ip -6 -o addr show dev {iface} scope global 2>/dev/null | awk '{{print $4}}'")
+        if v6_out:
+            info['ipv6_address'] = ', '.join(v6_out.splitlines())
+        else:
+            info['ipv6_address'] = "Unknown"
     else:
         info['ip_client'] = None
         info['netmask'] = None
         info['mac_address'] = "N/A"
         info['connection_status'] = "Not connected"
         info['method'] = "Unknown"
+        info['ipv6_address'] = "Unknown"
     info['ssid'] = "Unknown"
     if iface and iface.startswith("wl"):
         out, _, _ = run_command("iwgetid -r")
@@ -162,6 +168,7 @@ def display_network_info(info):
     print(f"  Interface           : {info.get('interface','?')}")
     print(f"  Method              : {info.get('method','?')}")
     print(f"  IP Client           : {info.get('ip_client','?')}")
+    print(f"  IPv6                : {info.get('ipv6_address','?')}")
     print(f"  Mac Address         : {info.get('mac_address','?')}")
     print(f"  Subnet Mask         : {info.get('netmask','?')}")
     print(f"  Gateway / IP Router : {info.get('gateway','?')}")
