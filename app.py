@@ -616,7 +616,7 @@ def main():
         elif pilihan == "Exit":
             print("Goodbye...")
             break
-        input("\nPress Enter go back...")
+        input("\nPress Enter go back...\n")
 
 if __name__ == "__main__":
     try:
