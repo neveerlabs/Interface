@@ -489,7 +489,7 @@ def scan_network():
         print(f"Failed to calculate subnet: {e}")
         return
 
-    print(f"[*] Scanning subnet... {subnet} ...")
+    print(f"[*] Scanning subnet {subnet}...")
     nmap_out, nmap_err, nmap_rc = run_command(f"nmap -sn {subnet}", timeout=20)
     if nmap_rc == 0:
         print("[*] Scan results (nmap):")
@@ -533,8 +533,37 @@ def scan_network():
     except Exception as e:
         print(f"Error ping sweep: {e}")
 
+def print_header():
+    try:
+        icon_lines = [
+            '   *               *',
+            '  *  *           *  *',
+            ' *  *  *  (*)  *  *  *',
+            ' *  *  *  /*\\  *  *  *',
+            '  *  *   /***\\   *  *',
+            '   *    /*****\\    *',
+            '       /*******\\'
+        ]
+        text_lines = [
+            'Name: Interface',
+            'Repo: https:github.com/neveerlabs/Interface.git',
+            'Version: v2.2.1',
+            'Lost update: 27 April 2026'
+        ]
+        for i in range(7):
+            icon = icon_lines[i]
+            text = text_lines[i] if i < len(text_lines) else ''
+            print(f"{icon:<28}{text}")
+    except Exception:
+        print("Name: Interface")
+        print("Repo: https:github.com/neveerlabs/Interface.git")
+        print("Version: v2.2.1")
+        print("Lost update: 27 April 2026")
+
 def main():
     while True:
+        print_header()
+        print()
         pilihan = questionary.select(
             "Select the action to perform:",
             choices=[
