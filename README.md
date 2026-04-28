@@ -57,18 +57,53 @@ Fokus konfigurasi router MikroTik RB750 / RB941
 
 ## Instalasi & Menjalankan
 
+* Clone repositori
+  ```bash
+  git clone https://github.com/neveerlabs/Interface.git
+  cd Interface
+  ```
+
+* Install dependensi
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+* Install arp-scan & nmap
+  ```bash
+  sudo apt install arp-scan -y && sudo apt install nmap -y
+  ```
+
+* Instalasi library di os Linux (Desktop / Server)
+  ```bash
+  sudo apt install -y python3-pip nmap arp-scan ethtool iproute2 curl
+  pip install questionary
+  ```
+
+* Windows Native (tanpa WSL)
+  * Install Python 3 dari python.org.
+  * Install Nmap dari nmap.org/download.html.
+  * Buka PowerShell (run dengan `run administrator`), jalankan:
+  ```bash
+  pip install questionary
+  ```
+
+* Windows dengan WSL
+  * Di dalam WSL, perlakukan seperti lingkungan Linux.
+  * Pastikan network mode WSL menggunakan mirrored atau bridge agar mendapatkan IP yang sesuai.
+
+* Android (di termux)
+  ```bash
+  pkg update && pkg upgrade
+  pkg install python python-pip nmap ethtool iproute2 curl
+  pip install questionary
+  ```
+  > **Catatan**: *Beberapa fitur mungkin terbatas tanpa root*
+
+* iOS (Tidak Didukung)
+> *Script tidak dapat berjalan di iOS karena kebijakan keamanan Apple!*
+
+* Jalankan dengan hak root (agar fitur ubah IP & scan penuh berfungsi)
 ```bash
-# 1. Clone repositori
-git clone https://github.com/neveerlabs/Interface.git
-cd Interface
-
-# 3. Install dependensi
-pip install questionary
-
-# 4 Install arp-scan & nmap
-sudo apt install arp-scan -y && sudo apt install nmap -y
-
-# 5. Jalankan dengan hak root (agar fitur ubah IP & scan penuh berfungsi)
 sudo /home/user/venv/bin/python app.py
 ```
 
