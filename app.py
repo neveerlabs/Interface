@@ -4,7 +4,6 @@ import re
 import sys
 import os
 import socket
-import fcntl
 import struct
 import platform
 from threading import Thread
@@ -13,15 +12,55 @@ import time
 import signal
 
 try:
+    import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    HAS_FCNTL = False
+
+try:
     import questionary
 except ImportError:
     print("ERROR: Library 'questionary' Not found. Run: pip install questionary")
     sys.exit(1)
 
+IS_WINDOWS = os.name == 'nt'
+IS_WSL = False
+IS_TERMUX = False
+IS_IOS = False
+IS_LINUX = False
+IS_UNIX = False
+
+if hasattr(sys, 'getandroidapilevel'):
+    IS_TERMUX = True
+elif 'TERMUX_VERSION' in os.environ:
+    IS_TERMUX = True
+
+if not IS_WINDOWS:
+    IS_UNIX = True
+    try:
+        with open('/proc/version', 'r') as f:
+            content = f.read()
+            if 'Microsoft' in content or 'WSL' in content:
+                IS_WSL = True
+    except:
+        pass
+    IS_LINUX = 'linux' in sys.platform
+    IS_IOS = 'ios' in sys.platform
+
+if IS_IOS:
+    print("iOS is not supported for this script.")
+    sys.exit(1)
+
 def run_command(command, timeout=5):
     try:
-        result = subprocess.run(command, shell=True, capture_output=True,
-                                text=True, timeout=timeout)
+        if IS_WINDOWS:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            result = subprocess.run(command, shell=True, capture_output=True,
+                                    text=True, timeout=timeout, startupinfo=startupinfo)
+        else:
+            result = subprocess.run(command, shell=True, capture_output=True,
+                                    text=True, timeout=timeout)
         return result.stdout.strip(), result.stderr.strip(), result.returncode
     except subprocess.TimeoutExpired:
         return "", "Timeout", -1
@@ -29,10 +68,13 @@ def run_command(command, timeout=5):
         return "", str(e), -1
 
 def run_command_stream(command, timeout=10):
-    proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, bufsize=1,
-                            preexec_fn=os.setsid)
+    preexec_func = None
+    if IS_UNIX:
+        preexec_func = os.setsid
     try:
+        proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                preexec_fn=preexec_func)
         while True:
             line = proc.stdout.readline()
             if not line:
@@ -41,13 +83,34 @@ def run_command_stream(command, timeout=10):
         proc.wait(timeout=timeout)
         return proc.returncode
     except subprocess.TimeoutExpired:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        if IS_UNIX and preexec_func:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except:
+                proc.kill()
+        else:
+            proc.kill()
         proc.wait()
         return -1
     except Exception:
         return -1
 
 def get_default_interface():
+    if IS_WINDOWS:
+        out, _, _ = run_command("ipconfig | findstr /i \"Default Gateway\"")
+        if out:
+            for line in out.splitlines():
+                if ':' in line:
+                    gw = line.split(':')[-1].strip()
+                    if gw:
+                        out2, _, _ = run_command("ipconfig")
+                        adapter = None
+                        for l in out2.splitlines():
+                            if 'adapter' in l.lower():
+                                adapter = l.split('adapter')[1].strip()[:-1]
+                            if gw in l and adapter:
+                                return adapter.replace(':', '').strip(), gw
+        return None, None
     out, _, rc = run_command("ip route show default")
     if rc != 0 or not out:
         return None, None
@@ -56,39 +119,93 @@ def get_default_interface():
         return None, None
     return parts[4], parts[2]
 
-def get_ip_address(ifname):
+def _get_ip_ioctl(ifname):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        ip = socket.inet_ntoa(fcntl.ioctl(
-            s.fileno(),
-            0x8915,
-            struct.pack('256s', ifname[:15].encode('utf-8'))
-        )[20:24])
+        ip = socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915, struct.pack('256s', ifname[:15].encode('utf-8')))[20:24])
         return ip
-    except Exception:
+    except:
         return None
     finally:
         s.close()
 
-def get_netmask(ifname):
+def _get_ip_fallback(ifname):
+    if IS_WINDOWS:
+        out, _, _ = run_command(f"ipconfig | findstr /i \"{ifname}\"")
+        if out:
+            for line in out.splitlines():
+                if 'IPv4 Address' in line:
+                    return line.split(':')[-1].strip()
+        return None
+    out, _, _ = run_command(f"ip -4 addr show dev {ifname} 2>/dev/null | grep inet | awk '{{print $2}}' | cut -d/ -f1")
+    if out:
+        return out.strip()
+    return None
+
+def get_ip_address(ifname):
+    if HAS_FCNTL and IS_UNIX:
+        res = _get_ip_ioctl(ifname)
+        if res:
+            return res
+    return _get_ip_fallback(ifname)
+
+def _get_netmask_ioctl(ifname):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        mask = socket.inet_ntoa(fcntl.ioctl(
-            s.fileno(),
-            0x891b,
-            struct.pack('256s', ifname[:15].encode('utf-8'))
-        )[20:24])
+        mask = socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x891b, struct.pack('256s', ifname[:15].encode('utf-8')))[20:24])
         return mask
-    except Exception:
+    except:
         return None
     finally:
         s.close()
+
+def _get_netmask_fallback(ifname):
+    if IS_WINDOWS:
+        out, _, _ = run_command(f"ipconfig | findstr /i \"{ifname}\"")
+        if out:
+            for line in out.splitlines():
+                if 'Subnet Mask' in line:
+                    return line.split(':')[-1].strip()
+        return None
+    out, _, _ = run_command(f"ip -4 addr show dev {ifname} 2>/dev/null | grep inet | awk '{{print $2}}' | cut -d/ -f2")
+    if out:
+        cidr = out.strip()
+        return cidr_to_netmask(int(cidr))
+    return None
+
+def cidr_to_netmask(cidr):
+    try:
+        cidr = int(cidr)
+        mask = (0xffffffff >> (32 - cidr)) << (32 - cidr)
+        return f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
+    except:
+        return None
+
+def get_netmask(ifname):
+    if HAS_FCNTL and IS_UNIX:
+        res = _get_netmask_ioctl(ifname)
+        if res:
+            return res
+    return _get_netmask_fallback(ifname)
 
 def get_mac_address(ifname):
     try:
-        with open(f"/sys/class/net/{ifname}/address", "r") as f:
-            return f.read().strip()
-    except Exception:
+        if IS_WINDOWS:
+            out, _, _ = run_command(f"getmac /v | findstr /i \"{ifname}\"")
+            if out:
+                parts = out.split()
+                for p in parts:
+                    if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', p):
+                        return p.replace('-', ':').lower()
+                return "N/A"
+        else:
+            with open(f"/sys/class/net/{ifname}/address", "r") as f:
+                return f.read().strip().lower()
+    except:
+        if IS_UNIX:
+            out, _, _ = run_command(f"ip link show {ifname} | grep link/ether | awk '{{print $2}}'")
+            if out:
+                return out.strip().lower()
         return "N/A"
 
 def netmask_to_cidr(netmask):
@@ -100,19 +217,32 @@ def netmask_to_cidr(netmask):
         return None
 
 def check_internet():
-    _, _, rc = run_command("ping -c 1 -W 2 8.8.8.8")
+    if IS_WINDOWS:
+        _, _, rc = run_command("ping -n 1 -w 2000 8.8.8.8")
+    else:
+        _, _, rc = run_command("ping -c 1 -W 2 8.8.8.8")
     return rc == 0
 
 def get_public_ip():
-    out, _, rc = run_command("curl -s --max-time 3 ifconfig.me", timeout=3)
-    if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
-        return out
-    out, _, rc = run_command("curl -s --max-time 3 api.ipify.org", timeout=3)
-    if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
-        return out
+    if IS_WINDOWS:
+        out, _, rc = run_command("powershell -Command \"(Invoke-WebRequest -Uri 'http://ifconfig.me' -TimeoutSec 3).Content\"", timeout=5)
+        if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+            return out.strip()
+        out, _, rc = run_command("powershell -Command \"(Invoke-WebRequest -Uri 'http://api.ipify.org' -TimeoutSec 3).Content\"", timeout=5)
+        if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+            return out.strip()
+    else:
+        out, _, rc = run_command("curl -s --max-time 3 ifconfig.me", timeout=3)
+        if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+            return out
+        out, _, rc = run_command("curl -s --max-time 3 api.ipify.org", timeout=3)
+        if rc == 0 and out and re.match(r'^\d+\.\d+\.\d+\.\d+$', out):
+            return out
     return "Unknown"
 
 def get_connection_method(iface):
+    if IS_WINDOWS:
+        return "Unknown"
     con_name = get_active_connection_name()
     if con_name:
         out, _, rc = run_command(f"nmcli -t -f IP4.METHOD connection show '{con_name}'")
@@ -122,7 +252,7 @@ def get_connection_method(iface):
             elif 'manual' in out:
                 return "Static"
     out, _, _ = run_command(f"ip -4 -o addr show {iface} 2>/dev/null | grep -v secondary | head -1")
-    if "dynamic" in out:
+    if out and "dynamic" in out:
         return "Dynamic (DHCP)"
     elif out:
         return "Static"
@@ -131,20 +261,30 @@ def get_connection_method(iface):
 def get_network_info():
     info = {}
     iface, gateway = get_default_interface()
-    info['interface'] = iface
+    info['interface'] = iface if iface else "Unknown"
     info['gateway'] = gateway if gateway else "Unknown"
     if iface:
+        if IS_WINDOWS:
+            info['connection_type'] = "Ethernet or WiFi"
+        else:
+            if iface.startswith("wl"):
+                info['connection_type'] = "Wireless"
+            elif iface.startswith(("eth", "en")):
+                info['connection_type'] = "Ethernet"
+            else:
+                info['connection_type'] = "Other"
         info['ip_client'] = get_ip_address(iface)
         info['netmask'] = get_netmask(iface)
         info['mac_address'] = get_mac_address(iface)
         info['connection_status'] = "Connected" if info.get('ip_client') else "Not connected"
         info['method'] = get_connection_method(iface)
-        v6_out, _, _ = run_command(f"ip -6 -o addr show dev {iface} scope global 2>/dev/null | awk '{{print $4}}'")
-        if v6_out:
-            info['ipv6_address'] = ', '.join(v6_out.splitlines())
-        else:
+        if IS_WINDOWS:
             info['ipv6_address'] = "Unknown"
+        else:
+            v6_out, _, _ = run_command(f"ip -6 -o addr show dev {iface} scope global 2>/dev/null | awk '{{print $4}}'")
+            info['ipv6_address'] = ', '.join(v6_out.splitlines()) if v6_out else "Unknown"
     else:
+        info['connection_type'] = "Unknown"
         info['ip_client'] = None
         info['netmask'] = None
         info['mac_address'] = "N/A"
@@ -152,12 +292,10 @@ def get_network_info():
         info['method'] = "Unknown"
         info['ipv6_address'] = "Unknown"
     info['ssid'] = "Unknown"
-    if iface and iface.startswith("wl"):
+    if iface and not IS_WINDOWS and iface.startswith("wl"):
         out, _, _ = run_command("iwgetid -r")
         if out:
             info['ssid'] = out
-        else:
-            info['ssid'] = "Unknown"
     info['internet_status'] = "Access internet" if check_internet() else "Not internet"
     info['public_ip'] = get_public_ip() if check_internet() else "Unknown"
     return info
@@ -166,6 +304,7 @@ def display_network_info(info):
     print("\n==========> NETWORK SPECIFICATIONS <==========")
     print(f"  SSID                : {info.get('ssid','?')}")
     print(f"  Interface           : {info.get('interface','?')}")
+    print(f"  Connection Type     : {info.get('connection_type','?')}")
     print(f"  Method              : {info.get('method','?')}")
     print(f"  IP Client           : {info.get('ip_client','?')}")
     print(f"  IPv6                : {info.get('ipv6_address','?')}")
@@ -177,6 +316,8 @@ def display_network_info(info):
     print(f"  Internet state      : {info.get('internet_status','?')}")
 
 def get_nic_hardware_info(iface):
+    if IS_WINDOWS:
+        return {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A'}
     info = {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A'}
     ethtool_out, _, _ = run_command(f"ethtool -i {iface} 2>/dev/null")
     if ethtool_out:
@@ -192,21 +333,48 @@ def get_nic_hardware_info(iface):
             first_line = lspci_out.splitlines()[0]
             vendor_device = ' '.join(first_line.split()[1:])
             info['vendor_device'] = vendor_device
-        else:
-            info['vendor_device'] = 'N/A'
-    else:
-        info['vendor_device'] = 'N/A'
     return info
 
 def get_device_info():
     info = {}
+    if IS_WINDOWS:
+        info['hostname'] = platform.node()
+        info['brand'] = "Unknown"
+        info['model'] = "Unknown"
+        info['serial'] = "Unknown"
+        info['screen_size'] = "Unknown"
+        info['ram'] = "Unknown"
+        info['processor'] = "Unknown"
+        info['cpu_cores'] = "Unknown"
+        info['gpu'] = "Unknown"
+        info['disks'] = []
+        info['partitions'] = []
+        info['nics'] = []
+        info['usb_devices'] = []
+        info['os_distro'] = "Windows"
+        info['os_version'] = platform.version()
+        info['kernel_version'] = "Unknown"
+        info['architecture'] = platform.machine()
+        info['desktop_environment'] = "Windows UI"
+        info['init_system'] = "N/A"
+        info['bios_vendor'] = "Unknown"
+        info['bios_version'] = "Unknown"
+        info['bios_date'] = "Unknown"
+        info['mb_vendor'] = "Unknown"
+        info['mb_model'] = "Unknown"
+        return info
+
+    info = {}
     info['hostname'] = platform.node()
-    out, _, _ = run_command("cat /sys/class/dmi/id/sys_vendor 2>/dev/null")
-    info['brand'] = out if out else "Unknown"
-    out, _, _ = run_command("cat /sys/class/dmi/id/product_name 2>/dev/null")
-    info['model'] = out if out else "Unknown"
-    out, _, _ = run_command("cat /sys/class/dmi/id/product_serial 2>/dev/null")
-    info['serial'] = out if out else "Unknown"
+    try:
+        with open("/sys/class/dmi/id/sys_vendor", "r") as f: info['brand'] = f.read().strip()
+    except: info['brand'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/product_name", "r") as f: info['model'] = f.read().strip()
+    except: info['model'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/product_serial", "r") as f: info['serial'] = f.read().strip()
+    except: info['serial'] = "Unknown"
 
     scr, _, _ = run_command("xrandr --current 2>/dev/null | grep '*' | awk '{print $1}'")
     info['screen_size'] = scr.splitlines()[0] if scr else "Unknown"
@@ -220,7 +388,7 @@ def get_device_info():
 
     cpu, _, _ = run_command("grep 'model name' /proc/cpuinfo | head -1")
     info['processor'] = cpu.split(':')[-1].strip() if cpu else "Unknown"
-    info['cpu_cores'] = os.cpu_count()
+    info['cpu_cores'] = os.cpu_count() if hasattr(os, 'cpu_count') else "Unknown"
 
     gpu, _, _ = run_command("lspci | grep -i 'vga\\|3d\\|display'")
     if gpu:
@@ -257,7 +425,7 @@ def get_device_info():
     if ifaces:
         for iface in ifaces.splitlines():
             iface = iface.strip()
-            mac, _, _ = run_command(f"cat /sys/class/net/{iface}/address 2>/dev/null")
+            mac = get_mac_address(iface)
             speed, _, _ = run_command(f"cat /sys/class/net/{iface}/speed 2>/dev/null")
             hw = get_nic_hardware_info(iface)
             mac = mac if mac else "N/A"
@@ -269,15 +437,12 @@ def get_device_info():
 
     usb_out, _, _ = run_command("lsusb")
     if usb_out:
-        info['usb_devices'] = []
-        for line in usb_out.splitlines():
-            info['usb_devices'].append(line.strip())
+        info['usb_devices'] = [line.strip() for line in usb_out.splitlines()]
     else:
         info['usb_devices'] = []
 
     os_release, _, _ = run_command("cat /etc/os-release 2>/dev/null")
     info['os_distro'] = "Unknown"
-    info['os_version'] = "Unknown"
     if os_release:
         for line in os_release.splitlines():
             if line.startswith("PRETTY_NAME="):
@@ -292,16 +457,21 @@ def get_device_info():
     init_system, _, _ = run_command("ps --no-headers -o comm 1")
     info['init_system'] = init_system if init_system else "Unknown"
 
-    bios_vendor, _, _ = run_command("cat /sys/class/dmi/id/bios_vendor 2>/dev/null")
-    info['bios_vendor'] = bios_vendor if bios_vendor else "Unknown"
-    bios_version, _, _ = run_command("cat /sys/class/dmi/id/bios_version 2>/dev/null")
-    info['bios_version'] = bios_version if bios_version else "Unknown"
-    bios_date, _, _ = run_command("cat /sys/class/dmi/id/bios_date 2>/dev/null")
-    info['bios_date'] = bios_date if bios_date else "Unknown"
-    mb_vendor, _, _ = run_command("cat /sys/class/dmi/id/board_vendor 2>/dev/null")
-    info['mb_vendor'] = mb_vendor if mb_vendor else "Unknown"
-    mb_model, _, _ = run_command("cat /sys/class/dmi/id/board_name 2>/dev/null")
-    info['mb_model'] = mb_model if mb_model else "Unknown"
+    try:
+        with open("/sys/class/dmi/id/bios_vendor", "r") as f: info['bios_vendor'] = f.read().strip()
+    except: info['bios_vendor'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/bios_version", "r") as f: info['bios_version'] = f.read().strip()
+    except: info['bios_version'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/bios_date", "r") as f: info['bios_date'] = f.read().strip()
+    except: info['bios_date'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/board_vendor", "r") as f: info['mb_vendor'] = f.read().strip()
+    except: info['mb_vendor'] = "Unknown"
+    try:
+        with open("/sys/class/dmi/id/board_name", "r") as f: info['mb_model'] = f.read().strip()
+    except: info['mb_model'] = "Unknown"
 
     return info
 
@@ -355,25 +525,32 @@ def display_device_info(info):
     print(f"  Motherboard         : {info.get('mb_vendor','?')} {info.get('mb_model','?')}")
 
 def ping_target(target, count=4):
-    rc = run_command_stream(f"ping -c {count} -W 2 {target}")
-    if rc == 0:
-        pass
+    if IS_WINDOWS:
+        rc = run_command_stream(f"ping -n {count} -w 2000 {target}")
     else:
+        rc = run_command_stream(f"ping -c {count} -W 2 {target}")
+    if rc != 0:
         print(f"Failed: no response or error")
     print()
 
 def get_active_connection_name():
+    if IS_WINDOWS:
+        return None
     out, _, rc = run_command("nmcli -t -f NAME,DEVICE connection show --active")
     if rc != 0 or not out:
         return None
     for line in out.splitlines():
         if ':' in line:
             name, dev = line.split(':', 1)
-            if dev == get_default_interface()[0]:
+            def_iface = get_default_interface()[0]
+            if def_iface and dev == def_iface:
                 return name
     return None
 
 def ubah_ip_menu():
+    if IS_WINDOWS:
+        print("This feature is only supported on Linux.")
+        return
     iface, gateway = get_default_interface()
     if not iface:
         print("Built-in interface not found")
@@ -434,12 +611,6 @@ def ubah_ip_menu():
         return
 
     if use_nmcli:
-        confirm = questionary.confirm(
-            f"Are you sure you want to apply this configuration to the router?"
-        ).ask()
-        if not confirm:
-            print("Cancelled.")
-            return
         cmd = (f"sudo nmcli connection modify '{con_name}' "
                f"ipv4.method manual "
                f"ipv4.addresses {ip}/{cidr} "
@@ -447,12 +618,6 @@ def ubah_ip_menu():
                f"ipv4.dns {dns} && "
                f"sudo nmcli connection up '{con_name}'")
     else:
-        confirm = questionary.confirm(
-            f"Are you sure you want to apply this configuration to the router?"
-        ).ask()
-        if not confirm:
-            print("Cancelled.")
-            return
         cmd = (f"sudo ip addr flush dev {iface} && "
                f"sudo ip addr add {ip}/{cidr} dev {iface} && "
                f"sudo ip route add default via {gw} && "
@@ -490,14 +655,14 @@ def scan_network():
         return
 
     print(f"[*] Scanning subnet {subnet}...")
-    nmap_out, nmap_err, nmap_rc = run_command(f"nmap -sn {subnet}", timeout=20)
+    nmap_out, _, nmap_rc = run_command(f"nmap -sn {subnet}", timeout=20)
     if nmap_rc == 0:
         print("[*] Scan results (nmap):")
         print(nmap_out)
         return
 
     print("nmap is not available, trying arp-scan...")
-    arp_out, arp_err, arp_rc = run_command("arp-scan --localnet", timeout=15)
+    arp_out, _, arp_rc = run_command("arp-scan --localnet", timeout=15)
     if arp_rc == 0:
         print("[*] Scan results (arp-scan):")
         print(arp_out)
@@ -512,7 +677,10 @@ def scan_network():
         threads = []
         q = Queue()
         def ping_one(addr):
-            _, _, r = run_command(f"ping -c 1 -W 1 {addr}")
+            if IS_WINDOWS:
+                _, _, r = run_command(f"ping -n 1 -w 1000 {addr}")
+            else:
+                _, _, r = run_command(f"ping -c 1 -W 1 {addr}")
             if r == 0:
                 q.put(str(addr))
         for addr in hosts:
@@ -546,9 +714,9 @@ def print_header():
         ]
         text_lines = [
             'Name: Interface',
-            'Repo: https:github.com/neveerlabs/Interface.git',
-            'Version: v2.2.1',
-            'Lost update: 27 April 2026'
+            'Repos: https:github.com/neveerlabs/Interface.git',
+            'Version: v2.6.9',
+            'Lost update: 28 April 2026'
         ]
         for i in range(7):
             icon = icon_lines[i]
@@ -556,9 +724,9 @@ def print_header():
             print(f"{icon:<28}{text}")
     except Exception:
         print("Name: Interface")
-        print("Repo: https:github.com/neveerlabs/Interface.git")
-        print("Version: v2.2.1")
-        print("Lost update: 27 April 2026")
+        print("Repos: https:github.com/neveerlabs/Interface.git")
+        print("Version: v2.6.9")
+        print("Lost update: 28 April 2026")
 
 def main():
     while True:
