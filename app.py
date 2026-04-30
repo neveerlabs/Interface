@@ -12,6 +12,7 @@ import time
 import signal
 import shlex
 import ipaddress
+import shutil
 
 try:
     import fcntl
@@ -50,7 +51,7 @@ if not IS_WINDOWS:
     IS_IOS = 'ios' in sys.platform
 
 if IS_IOS:
-    print("iOS is not supported for this script.")
+    print("IOS is not supported for this script.")
     sys.exit(1)
 
 def run_command(command, timeout=5):
@@ -722,6 +723,70 @@ def scan_network():
     except Exception as e:
         print(f"Error ping sweep: {e}")
 
+def run_wireshark():
+    if IS_TERMUX:
+        print("Wireshark is not supported on Termux.")
+        print("Consider using tcpdump or a PCAP analyzer instead.")
+        return
+    if IS_IOS:
+        print("Wireshark cannot run on IOS.")
+        return
+
+    wireshark_cmd = None
+    if IS_WINDOWS:
+        possible_paths = [
+            os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), 'Wireshark', 'wireshark.exe'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'Wireshark', 'wireshark.exe')
+        ]
+        for p in possible_paths:
+            if os.path.isfile(p):
+                wireshark_cmd = p
+                break
+        if not wireshark_cmd and shutil.which('wireshark'):
+            wireshark_cmd = 'wireshark'
+    else:
+        wireshark_cmd = 'wireshark'
+
+    if not wireshark_cmd or (isinstance(wireshark_cmd, str) and not shutil.which(wireshark_cmd)):
+        print("Wireshark is not installed or not found in PATH.")
+        if IS_WINDOWS:
+            print("Download it from https://www.wireshark.org/download.html")
+        else:
+            print("Install it using your package manager, e.g.:")
+            print("  sudo apt install wireshark   (Debian/Ubuntu)")
+            print("  sudo pacman -S wireshark     (Arch)")
+            print("  sudo dnf install wireshark   (Fedora)")
+        return
+
+    print("Launching Wireshark...")
+    print("Press Ctrl+C to stop Wireshark and return to the menu.")
+    try:
+        if IS_WINDOWS:
+            proc = subprocess.Popen([wireshark_cmd], shell=False)
+        else:
+            proc = subprocess.Popen([wireshark_cmd], shell=False, preexec_fn=os.setsid)
+        proc.wait()
+    except KeyboardInterrupt:
+        print("\nStopping Wireshark...")
+        try:
+            if IS_WINDOWS:
+                proc.terminate()
+                proc.wait(timeout=5)
+            else:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=5)
+        except:
+            try:
+                proc.kill()
+                proc.wait()
+            except:
+                pass
+        print("Wireshark has been closed.")
+    except FileNotFoundError:
+        print("Unexpected error: Wireshark executable not found.")
+    except Exception as e:
+        print(f"Failed to run Wireshark: {e}")
+
 def print_header():
     try:
         icon_lines = [
@@ -736,7 +801,7 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https:github.com/neveerlabs/Interface.git',
-            'Version: v2.7.4',
+            'Version: v2.7.5',
             'Lost update: 30 April 2026'
         ]
         for i in range(7):
@@ -746,7 +811,7 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https:github.com/neveerlabs/Interface.git")
-        print("Version: v2.7.4")
+        print("Version: v2.7.5")
         print("Lost update: 30 April 2026")
 
 def main():
@@ -765,6 +830,7 @@ def main():
                 "Ping Between Clients",
                 "Change IP (Static / Dynamic)",
                 "Check IP Addresses of All Clients on the Network",
+                "Run Wireshark",
                 "Exit"
             ],
             use_arrow_keys=True
@@ -808,6 +874,8 @@ def main():
             ubah_ip_menu()
         elif pilihan == "Check IP Addresses of All Clients on the Network":
             scan_network()
+        elif pilihan == "Run Wireshark":
+            run_wireshark()
         elif pilihan == "Exit":
             print("Goodbye...")
             break
