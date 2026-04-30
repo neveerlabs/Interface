@@ -10,6 +10,8 @@ from threading import Thread
 from queue import Queue
 import time
 import signal
+import shlex
+import ipaddress
 
 try:
     import fcntl
@@ -318,7 +320,7 @@ def display_network_info(info):
 def get_nic_hardware_info(iface):
     if IS_WINDOWS:
         return {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A'}
-    info = {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A'}
+    info = {'driver': 'N/A', 'bus': 'N/A', 'vendor': 'N/A', 'device': 'N/A', 'vendor_device': 'N/A'}
     ethtool_out, _, _ = run_command(f"ethtool -i {iface} 2>/dev/null")
     if ethtool_out:
         for line in ethtool_out.splitlines():
@@ -432,7 +434,7 @@ def get_device_info():
             speed = f"{speed} Mbps" if speed and speed.strip() != '-1' else "N/A"
             driver = hw['driver']
             bus = hw['bus']
-            vendor_device = hw['vendor_device']
+            vendor_device = hw.get('vendor_device', 'N/A')
             info['nics'].append({'name': iface, 'mac': mac, 'speed': speed, 'driver': driver, 'bus': bus, 'vendor_device': vendor_device})
 
     usb_out, _, _ = run_command("lsusb")
@@ -525,10 +527,11 @@ def display_device_info(info):
     print(f"  Motherboard         : {info.get('mb_vendor','?')} {info.get('mb_model','?')}")
 
 def ping_target(target, count=4):
+    sanitized = shlex.quote(target)
     if IS_WINDOWS:
-        rc = run_command_stream(f"ping -n {count} -w 2000 {target}")
+        rc = run_command_stream(f"ping -n {count} -w 2000 {sanitized}")
     else:
-        rc = run_command_stream(f"ping -c {count} -W 2 {target}")
+        rc = run_command_stream(f"ping -c {count} -W 2 {sanitized}")
     if rc != 0:
         print(f"Failed: no response or error")
     print()
@@ -546,6 +549,13 @@ def get_active_connection_name():
             if def_iface and dev == def_iface:
                 return name
     return None
+
+def is_valid_ipv4(addr):
+    try:
+        ipaddress.IPv4Address(addr)
+        return True
+    except:
+        return False
 
 def ubah_ip_menu():
     if IS_WINDOWS:
@@ -569,13 +579,13 @@ def ubah_ip_menu():
     if pilihan.startswith("Dynamic"):
         print(f"Setup {iface} to DHCP...")
         if use_nmcli:
-            cmd = (f"sudo nmcli connection modify '{con_name}' "
+            cmd = (f"sudo nmcli connection modify '{shlex.quote(con_name)}' "
                    f"ipv4.method auto ipv4.addresses \"\" ipv4.gateway \"\" ipv4.dns \"\" && "
-                   f"sudo ip addr flush dev {iface} && "
-                   f"sudo nmcli connection down '{con_name}' && "
-                   f"sudo nmcli connection up '{con_name}'")
+                   f"sudo ip addr flush dev {shlex.quote(iface)} && "
+                   f"sudo nmcli connection down '{shlex.quote(con_name)}' && "
+                   f"sudo nmcli connection up '{shlex.quote(con_name)}'")
         else:
-            cmd = f"sudo dhclient -r {iface} ; sudo dhclient {iface}"
+            cmd = f"sudo dhclient -r {shlex.quote(iface)} ; sudo dhclient {shlex.quote(iface)}"
         out, err, rc = run_command(cmd, timeout=15)
         if rc == 0:
             print("Success! IP address obtained via DHCP.")
@@ -584,8 +594,8 @@ def ubah_ip_menu():
         return
 
     ip = questionary.text("Enter IP address:").ask()
-    if not ip:
-        print("IP address cannot be empty.")
+    if not ip or not is_valid_ipv4(ip):
+        print("Invalid IP address.")
         return
 
     default_netmask = get_netmask(iface)
@@ -593,16 +603,20 @@ def ubah_ip_menu():
     netmask = questionary.text(prompt_netmask).ask()
     if not netmask:
         netmask = default_netmask
-    if not netmask:
-        print("Subnet mask cannot be determined.")
+    if not netmask or not is_valid_ipv4(netmask):
+        print("Invalid subnet mask.")
         return
 
     gw = questionary.text(f"Enter gateway (leave blank for {gateway}):").ask()
     if not gw:
         gw = gateway
+    if not gw or not is_valid_ipv4(gw):
+        print("Invalid gateway address.")
+        return
+
     dns = questionary.text("Enter DNS:").ask()
-    if not dns:
-        print("DNS cannot be empty.")
+    if not dns or not is_valid_ipv4(dns):
+        print("Invalid DNS address.")
         return
 
     cidr = netmask_to_cidr(netmask)
@@ -610,18 +624,25 @@ def ubah_ip_menu():
         print("Invalid subnet mask.")
         return
 
+    ip_quoted = shlex.quote(ip)
+    gw_quoted = shlex.quote(gw)
+    dns_quoted = shlex.quote(dns)
+    cidr_quoted = shlex.quote(cidr)
+    iface_quoted = shlex.quote(iface)
+
     if use_nmcli:
-        cmd = (f"sudo nmcli connection modify '{con_name}' "
+        con_name_quoted = shlex.quote(con_name)
+        cmd = (f"sudo nmcli connection modify '{con_name_quoted}' "
                f"ipv4.method manual "
-               f"ipv4.addresses {ip}/{cidr} "
-               f"ipv4.gateway {gw} "
-               f"ipv4.dns {dns} && "
-               f"sudo nmcli connection up '{con_name}'")
+               f"ipv4.addresses {ip_quoted}/{cidr_quoted} "
+               f"ipv4.gateway {gw_quoted} "
+               f"ipv4.dns {dns_quoted} && "
+               f"sudo nmcli connection up '{con_name_quoted}'")
     else:
-        cmd = (f"sudo ip addr flush dev {iface} && "
-               f"sudo ip addr add {ip}/{cidr} dev {iface} && "
-               f"sudo ip route add default via {gw} && "
-               f"echo 'nameserver {dns}' | sudo tee /etc/resolv.conf > /dev/null")
+        cmd = (f"sudo ip addr flush dev {iface_quoted} && "
+               f"sudo ip addr add {ip_quoted}/{cidr_quoted} dev {iface_quoted} && "
+               f"sudo ip route add default via {gw_quoted} && "
+               f"echo 'nameserver {dns_quoted}' | sudo tee /etc/resolv.conf > /dev/null")
 
     print("Applying static configuration...")
     out, err, rc = run_command(cmd, timeout=15)
@@ -646,7 +667,6 @@ def scan_network():
         print("Invalid subnet mask.")
         return
 
-    import ipaddress
     try:
         network = ipaddress.IPv4Network(f"{ip_client}/{cidr}", strict=False)
         subnet = f"{network.network_address}/{cidr}"
@@ -655,7 +675,7 @@ def scan_network():
         return
 
     print(f"[*] Scanning subnet {subnet}...")
-    nmap_out, _, nmap_rc = run_command(f"nmap -sn {subnet}", timeout=20)
+    nmap_out, _, nmap_rc = run_command(f"nmap -sn {shlex.quote(subnet)}", timeout=20)
     if nmap_rc == 0:
         print("[*] Scan results (nmap):")
         print(nmap_out)
@@ -677,10 +697,11 @@ def scan_network():
         threads = []
         q = Queue()
         def ping_one(addr):
+            target = shlex.quote(str(addr))
             if IS_WINDOWS:
-                _, _, r = run_command(f"ping -n 1 -w 1000 {addr}")
+                _, _, r = run_command(f"ping -n 1 -w 1000 {target}")
             else:
-                _, _, r = run_command(f"ping -c 1 -W 1 {addr}")
+                _, _, r = run_command(f"ping -c 1 -W 1 {target}")
             if r == 0:
                 q.put(str(addr))
         for addr in hosts:
@@ -770,13 +791,19 @@ def main():
         elif pilihan == "Ping Between Router":
             target = questionary.text("Enter router IP address:").ask()
             if target:
-                ping_target(target)
+                if not is_valid_ipv4(target):
+                    print("Invalid IP address.")
+                else:
+                    ping_target(target)
             else:
                 print("IP address required.")
         elif pilihan == "Ping Between Clients":
             target = questionary.text("Enter target IP address:").ask()
             if target:
-                ping_target(target)
+                if not is_valid_ipv4(target):
+                    print("Invalid IP address.")
+                else:
+                    ping_target(target)
         elif pilihan == "Change IP (Static / Dynamic)":
             ubah_ip_menu()
         elif pilihan == "Check IP Addresses of All Clients on the Network":
