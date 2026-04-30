@@ -49,7 +49,7 @@ Fokus konfigurasi router MikroTik RB750 / RB941
   - `iproute2` (`ip` command)
   - `sudo` (untuk perubahan IP dan akses serial)
   - `NetworkManager` (`nmcli`) – direkomendasikan untuk ubah IP
-
+- **Wireshark**
 - **Python 3.13+**  
 - **Hak akses root** (`sudo`) untuk beberapa fitur (Ubah IP, pemindaian penuh)
 
@@ -102,6 +102,12 @@ Fokus konfigurasi router MikroTik RB750 / RB941
 * iOS (Tidak Didukung)
 > *Script tidak dapat berjalan di iOS karena kebijakan keamanan Apple!*
 
+* Linux: `sudo apt install wireshark -y` (Debian/Ubuntu), `sudo pacman -S wireshark` (Arch), `sudo dnf install wireshark` (Fedora)
+
+* Windows: Download dari https://www.wireshark.org/download.html, pastikan centang "Install Wireshark" dan "TShark" saat instalasi, dan tambahkan ke PATH.
+
+* Termux: Tidak mendukung (akan muncul pesan khusus).
+
 * Jalankan dengan hak root (agar fitur ubah IP & scan penuh berfungsi)
 ```bash
 sudo /home/user/venv/bin/python app.py
@@ -120,6 +126,8 @@ Setelah script berjalan, input nya menggunakan keyboard scrollbar (gunakan panah
 
 * **`Check IP Addresses of All Clients on the Network`** – Pindai clint jaringan
 
+* **`Run Wireshark`** – Buka aplikasi `Wireshark`. Jika belum terinstal, maka akan dibei tau cara install-nya. Tekan `Ctrl+C` kapan aja untuk nutup Wireshark dan balik ke menu utama.
+
 * **`Exit`** – Keluar
 
 ## Catatan Penting
@@ -127,6 +135,10 @@ Setelah script berjalan, input nya menggunakan keyboard scrollbar (gunakan panah
 - Jika tidak menggunakan `sudo`, beberapa informasi (seperti serial number) mungkin tidak terbaca.
 - Tkes output menggunakan **bahasa Inggris United States (US)** untuk kemudahan dokumentasi, dan mudah dipahami (Jangan dikomen ya guys, itu teksnya hasil translate di google).
 - Script tidak menyimpan log ke file, dan tidak ada data yang dsimpan / dikirim ke server manapun.
+- Fitur Wireshark hanya tersedia di Linux & Windows (Termux, iOS, WSL tanpa GUI mungkin terbatas).
+- Jika Wireshark gak kedetect, script bakal ngasih instruksi instalasi sesuai OS.
+- Tekan `Ctrl+C` saat Wireshark berjalan akan menghentikan proses Wireshark dan mengembalikan kontrol ke script **tanpa keluar dari script Interface**.
+- Wireshark butuh akses root atau CAP_NET_RAW untuk packet capture. jadi, pastikan script dijalankan dengan sudo di Linux, atau "Run as Administrator" di Windows (CMD).
 
 ---
 
