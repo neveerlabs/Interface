@@ -580,11 +580,11 @@ def ubah_ip_menu():
     if pilihan.startswith("Dynamic"):
         print(f"Setup {iface} to DHCP...")
         if use_nmcli:
-            cmd = (f"sudo nmcli connection modify '{shlex.quote(con_name)}' "
+            cmd = (f"sudo nmcli connection modify {shlex.quote(con_name)} "
                    f"ipv4.method auto ipv4.addresses \"\" ipv4.gateway \"\" ipv4.dns \"\" && "
                    f"sudo ip addr flush dev {shlex.quote(iface)} && "
-                   f"sudo nmcli connection down '{shlex.quote(con_name)}' && "
-                   f"sudo nmcli connection up '{shlex.quote(con_name)}'")
+                   f"sudo nmcli connection down {shlex.quote(con_name)} && "
+                   f"sudo nmcli connection up {shlex.quote(con_name)}")
         else:
             cmd = f"sudo dhclient -r {shlex.quote(iface)} ; sudo dhclient {shlex.quote(iface)}"
         out, err, rc = run_command(cmd, timeout=15)
@@ -625,25 +625,19 @@ def ubah_ip_menu():
         print("Invalid subnet mask.")
         return
 
-    ip_quoted = shlex.quote(ip)
-    gw_quoted = shlex.quote(gw)
-    dns_quoted = shlex.quote(dns)
-    cidr_quoted = shlex.quote(cidr)
-    iface_quoted = shlex.quote(iface)
-
+    addr_cidr = f"{ip}/{cidr}"
     if use_nmcli:
-        con_name_quoted = shlex.quote(con_name)
-        cmd = (f"sudo nmcli connection modify '{con_name_quoted}' "
+        cmd = (f"sudo nmcli connection modify {shlex.quote(con_name)} "
                f"ipv4.method manual "
-               f"ipv4.addresses {ip_quoted}/{cidr_quoted} "
-               f"ipv4.gateway {gw_quoted} "
-               f"ipv4.dns {dns_quoted} && "
-               f"sudo nmcli connection up '{con_name_quoted}'")
+               f"ipv4.addresses {shlex.quote(addr_cidr)} "
+               f"ipv4.gateway {shlex.quote(gw)} "
+               f"ipv4.dns {shlex.quote(dns)} && "
+               f"sudo nmcli connection up {shlex.quote(con_name)}")
     else:
-        cmd = (f"sudo ip addr flush dev {iface_quoted} && "
-               f"sudo ip addr add {ip_quoted}/{cidr_quoted} dev {iface_quoted} && "
-               f"sudo ip route add default via {gw_quoted} && "
-               f"echo 'nameserver {dns_quoted}' | sudo tee /etc/resolv.conf > /dev/null")
+        cmd = (f"sudo ip addr flush dev {shlex.quote(iface)} && "
+               f"sudo ip addr add {shlex.quote(addr_cidr)} dev {shlex.quote(iface)} && "
+               f"sudo ip route add default via {shlex.quote(gw)} && "
+               f"echo 'nameserver {shlex.quote(dns)}' | sudo tee /etc/resolv.conf > /dev/null")
 
     print("Applying static configuration...")
     out, err, rc = run_command(cmd, timeout=15)
