@@ -736,8 +736,8 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https:github.com/neveerlabs/Interface.git',
-            'Version: v2.6.9',
-            'Lost update: 28 April 2026'
+            'Version: v2.7.4',
+            'Lost update: 30 April 2026'
         ]
         for i in range(7):
             icon = icon_lines[i]
@@ -746,8 +746,8 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https:github.com/neveerlabs/Interface.git")
-        print("Version: v2.6.9")
-        print("Lost update: 28 April 2026")
+        print("Version: v2.7.4")
+        print("Lost update: 30 April 2026")
 
 def main():
     while True:
