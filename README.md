@@ -74,7 +74,7 @@ Fokus konfigurasi router MikroTik RB750 / RB941
 * Install arp-scan & nmap
   ```bash
   sudo apt install arp-scan -y && sudo apt install nmap -y
-```
+  ```
 * Instalasi library di os Linux (Desktop / Server)
   ```bash
   sudo apt install -y python3-pip nmap arp-scan ethtool iproute2 curl hostapd dnsmasq
