@@ -2,7 +2,7 @@
 
 # Interface
 
-**Alat Bantu Pengujian Jaringan & Spesifikasi Perangkat**  
+**Alat Bantu Pengujian Jaringan, Spesifikasi Perangkat & Manajemen Hotspot WiFi**  
 Dikembangkan dari seorang siswa untuk Uji Kompetensi Keahlian (UKK) Teknik Komputer & Jaringan (TKJ)  
 Fokus konfigurasi router MikroTik RB750 / RB941  
 
@@ -35,6 +35,9 @@ Fokus konfigurasi router MikroTik RB750 / RB941
   Hardware: hostname, merek, model, serial number, resolusi layar, RAM, CPU, GPU, disk, partisi, NIC, USB.  
   Software: OS, kernel, arsitektur, desktop environment, init system, BIOS, motherboard.
 
+- **Manajemen Hotspot WiFi**  
+  Buat, edit, dan hapus konfigurasi hotspot WiFi. Nyalakan, hentikan, atau restart server hotspot kapan saja. Dilengkapi monitoring log DHCP secara langsung dan kemampuan untuk melihat detail perangkat yang sedang terhubung. Konfigurasi disimpan otomatis dan server hotspot dapat berjalan di latar belakang tanpa mengganggu menu utama. *(hanya tersedia di Linux dengan `hostapd` & `dnsmasq`)*
+
 ---
 
 ## Persyaratan Sistem
@@ -49,9 +52,11 @@ Fokus konfigurasi router MikroTik RB750 / RB941
   - `iproute2` (`ip` command)
   - `sudo` (untuk perubahan IP dan akses serial)
   - `NetworkManager` (`nmcli`) – direkomendasikan untuk ubah IP
+  - `hostapd` (untuk membuat access point)
+  - `dnsmasq` (untuk DHCP server hotspot)
 - **Wireshark**
 - **Python 3.13+**  
-- **Hak akses root** (`sudo`) untuk beberapa fitur (Ubah IP, pemindaian penuh)
+- **Hak akses root** (`sudo`) untuk beberapa fitur (Ubah IP, pemindaian penuh, manajemen hotspot)
 
 ---
 
@@ -62,98 +67,94 @@ Fokus konfigurasi router MikroTik RB750 / RB941
   git clone https://github.com/neveerlabs/Interface.git
   cd Interface
   ```
-
 * Install dependensi
   ```bash
   pip install -r requirements.txt
   ```
-
 * Install arp-scan & nmap
   ```bash
   sudo apt install arp-scan -y && sudo apt install nmap -y
-  ```
-
+```
 * Instalasi library di os Linux (Desktop / Server)
   ```bash
-  sudo apt install -y python3-pip nmap arp-scan ethtool iproute2 curl
+  sudo apt install -y python3-pip nmap arp-scan ethtool iproute2 curl hostapd dnsmasq
   pip install questionary
   ```
-
 * Windows Native (tanpa WSL)
-  * Install Python 3 dari python.org.
-  * Install Nmap dari nmap.org/download.html.
+  * Install Python 3 dari `https://python.org`.
+  * Install `Nmap` dari `https://nmap.org/download.html`.
   * Buka PowerShell (run dengan `run administrator`), jalankan:
   ```bash
   pip install questionary
   ```
-
+  > Catatan: *Fitur hotspot tidak tersedia di Windows.*
 * Windows dengan WSL
   * Di dalam WSL, perlakukan seperti lingkungan Linux.
   * Pastikan network mode WSL menggunakan mirrored atau bridge agar mendapatkan IP yang sesuai.
-
+  * Fitur hotspot mungkin memerlukan konfigurasi tambahan.
 * Android (di termux)
   ```bash
   pkg update && pkg upgrade
   pkg install python python-pip nmap ethtool iproute2 curl
   pip install questionary
   ```
-  > **Catatan**: *Beberapa fitur mungkin terbatas tanpa root*
-
+  > Catatan: *Beberapa fitur mungkin terbatas tanpa root. Hotspot tidak tersedia di Termux.*
 * iOS (Tidak Didukung)
 > *Script tidak dapat berjalan di iOS karena kebijakan keamanan Apple!*
-
 * Linux: `sudo apt install wireshark -y` (Debian/Ubuntu), `sudo pacman -S wireshark` (Arch), `sudo dnf install wireshark` (Fedora)
-
-* Windows: Download dari https://www.wireshark.org/download.html, pastikan centang "Install Wireshark" dan "TShark" saat instalasi, dan tambahkan ke PATH.
-
+* Windows: Download dari `https://www.wireshark.org/download.html`, pastikan centang "Install Wireshark" dan "TShark" saat instalasi, dan tambahkan ke PATH.
 * Termux: Tidak mendukung (akan muncul pesan khusus).
-
-* Jalankan dengan hak root (agar fitur ubah IP & scan penuh berfungsi)
-```bash
-sudo /home/user/venv/bin/python app.py
-```
+* Jalankan dengan hak root (agar fitur ubah IP, scan penuh, dan hotspot berfungsi)
+  ```bash
+  sudo /home/user/venv/bin/python app.py
+  ```
 
 ## Penggunaan
 Setelah script berjalan, input nya menggunakan keyboard scrollbar (gunakan panah atas/bawah & Enter):
-
-* **`Display Network Specifications`** – Tampilkan info jaringan lengkap
-
-* **`Display Device Specifications`** – Tampilkan spesifikasi perangkat
-
-* **`Ping DNS / Google / Router / Gateway / Between Router / Between Clients`** – Jalankan ping ke target
-
-* **`Change IP (Static / Dynamic)`** – Ubah method
-
-* **`Check IP Addresses of All Clients on the Network`** – Pindai clint jaringan
-
-* **`Run Wireshark`** – Buka aplikasi `Wireshark`. Jika belum terinstal, maka akan dibei tau cara install-nya. Tekan `Ctrl+C` kapan aja untuk nutup Wireshark dan balik ke menu utama.
-
-* **`Exit`** – Keluar
+* `Display Network Specifications` – Tampilkan info jaringan lengkap
+* `Display Device Specifications` – Tampilkan spesifikasi perangkat
+* `Ping DNS / Google / Router / Gateway / Between Router / Between Clients` – Jalankan ping ke target
+* `Change IP (Static / Dynamic)` – Ubah method
+* `Check IP Addresses of All Clients on the Network` – Pindai clint jaringan
+* `Manage Hotspot` – Masuk ke sub-menu untuk mengatur hotspot WiFi:
+  * `Create WiFi Hotspot` – Membuat konfigurasi hotspot baru (SSID, password, IP, DHCP pool, sumber internet). Konfigurasi disimpan ke file.
+  * `Edit Configuration` – Mengubah konfigurasi yang sudah ada.
+  * `Delete Configuration` – Menghapus konfigurasi.
+  * `Start Hotspot Server` – Menjalankan server hotspot berdasarkan konfigurasi terpilih. Hotspot akan terus berjalan meski Anda keluar dari sub-menu ini, selama aplikasi utama masih terbuka.
+  * `Restart Hotspot Server` – Menghentikan lalu menjalankan kembali server.
+  * `Stop Hotspot Server` – Mematikan server hotspot. Semua aturan NAT dan interface dikembalikan seperti semula.
+  * `Monitor Log` – Menampilkan log DHCP terbaru dari `dnsmasq` secara langsung (`tekan Ctrl+C` untuk kembali).
+  * `View Connected Devices` – Melihat perangkat yang sedang terhubung ke hotspot beserta detailnya.
+* `Run Wireshark` – Buka aplikasi `Wireshark`. Jika belum terinstal, maka akan dibei tau cara install-nya. Tekan `Ctrl+C` kapan aja untuk nutup Wireshark dan balik ke menu utama.
+* `Exit` – Keluar
 
 ## Catatan Penting
-- Jalankan dengan `sudo` agar fitur pemindaian (nmap) mendeteksi semua perangkat, dan pengubahan IP berjalan mulus.
-- Jika tidak menggunakan `sudo`, beberapa informasi (seperti serial number) mungkin tidak terbaca.
-- Tkes output menggunakan **bahasa Inggris United States (US)** untuk kemudahan dokumentasi, dan mudah dipahami (Jangan dikomen ya guys, itu teksnya hasil translate di google).
-- Script tidak menyimpan log ke file, dan tidak ada data yang dsimpan / dikirim ke server manapun.
-- Fitur Wireshark hanya tersedia di Linux & Windows (Termux, iOS, WSL tanpa GUI mungkin terbatas).
-- Jika Wireshark gak kedetect, script bakal ngasih instruksi instalasi sesuai OS.
-- Tekan `Ctrl+C` saat Wireshark berjalan akan menghentikan proses Wireshark dan mengembalikan kontrol ke script **tanpa keluar dari script Interface**.
-- Wireshark butuh akses root atau CAP_NET_RAW untuk packet capture. jadi, pastikan script dijalankan dengan sudo di Linux, atau "Run as Administrator" di Windows (CMD).
+* Jalankan dengan `sudo` agar fitur pemindaian (nmap) mendeteksi semua perangkat, pengubahan IP, dan hotspot berjalan mulus.
+* Jika tidak menggunakan `sudo`, beberapa informasi (seperti serial number) mungkin tidak terbaca.
+* Teks output menggunakan **bahasa Inggris United States (US)** untuk kemudahan dokumentasi, dan mudah dipahami.
+* Script tidak menyimpan log ke file secara permanen, dan tidak ada data yang dikirim ke server manapun (kecuali konfigurasi hotspot yang disimpan lokal di file JSON).
+* Fitur Wireshark hanya tersedia di Linux & Windows (Termux, iOS, WSL tanpa GUI mungkin terbatas).
+* Jika Wireshark gak kedetect, script bakal ngasih instruksi instalasi sesuai OS.
+* Tekan `Ctrl+C` saat Wireshark berjalan akan menghentikan proses Wireshark dan mengembalikan kontrol ke script **tanpa keluar dari script Interface**.
+* Wireshark butuh akses root atau CAP_NET_RAW untuk packet capture. jadi, pastikan script dijalankan dengan sudo di Linux, atau "Run as Administrator" di Windows (CMD).
+* **Fitur Hotspot**:
+  * Hanya berjalan di Linux dengan `hostapd` dan `dnsmasq` terinstal.
+  * Jangan gunakan interface AP (wlan0) yang sama untuk koneksi internet sumber. Pilih interface lain (eth0, wlan1) atau pilih "No internet (LAN only)".
+  * Server hotspot tetap berjalan saat Anda kembali ke menu utama atau menjalankan fitur lain. Untuk menghentikannya, gunakan menu `Stop Hotspot Server` atau keluar dari aplikasi.
+  * Saat aplikasi ditutup (termasuk dengan `Ctrl+C`), server hotspot otomatis dimatikan dan semua aturan dibersihkan.
 
 ---
 
-## Lisensi
+Lisensi
 MIT License. Bebas digunakan, dimodifikasi, dan disebarluaskan.
 
-
 <div align="center">
-
 `Made with by Neverlabs | © 2026`
 
-[![Instagram](https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white)](https://instagram.com/neveerlabs)
-[![X](https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/neverlabs291)
-[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/neveerlabs)
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Neverlabs)
-[![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:userlinuxorg@gmail.com)
+https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white
+https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white
+https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white
+https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white
+https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white
 
-</div>
+</div> ```
