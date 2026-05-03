@@ -149,6 +149,7 @@ Lisensi
 MIT License. Bebas digunakan, dimodifikasi, dan disebarluaskan.
 
 <div align="center">
+
 `Made with by Neverlabs | © 2026`
 
 https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white
