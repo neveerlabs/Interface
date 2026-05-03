@@ -6,13 +6,15 @@ import os
 import socket
 import struct
 import platform
-from threading import Thread
+from threading import Thread, Lock
 from queue import Queue
 import time
 import signal
 import shlex
 import ipaddress
 import shutil
+import json
+import atexit
 
 try:
     import fcntl
@@ -53,6 +55,14 @@ if not IS_WINDOWS:
 if IS_IOS:
     print("IOS is not supported for this script.")
     sys.exit(1)
+
+HOTSPOT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_configs.json")
+HOTSPOT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_state.json")
+
+log_buffer = []
+log_lock = Lock()
+dnsmasq_monitor_thread = None
+monitor_stop_flag = False
 
 def run_command(command, timeout=5):
     try:
@@ -787,7 +797,7 @@ def print_header():
             '   *               *',
             '  *  *           *  *',
             ' *  *  *  (*)  *  *  *',
-            ' *  *  *  /*\\  *  *  *',
+            ' *  *  *  /**  *  *  *',
             '  *  *   /***\\   *  *',
             '   *    /*****\\    *',
             '       /*******\\'
@@ -795,8 +805,8 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https:github.com/neveerlabs/Interface.git',
-            'Version: v2.7.5',
-            'Lost update: 30 April 2026'
+            'Version: v2.9.5',
+            'Lost update: 4 Mei 2026'
         ]
         for i in range(7):
             icon = icon_lines[i]
@@ -805,10 +815,485 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https:github.com/neveerlabs/Interface.git")
-        print("Version: v2.7.5")
-        print("Lost update: 30 April 2026")
+        print("Version: v2.9.5")
+        print("Lost update: 4 Mei 2026")
+
+def load_configs():
+    if not os.path.exists(HOTSPOT_CONFIG_FILE):
+        return []
+    try:
+        with open(HOTSPOT_CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_configs(configs):
+    with open(HOTSPOT_CONFIG_FILE, 'w') as f:
+        json.dump(configs, f, indent=2)
+
+def load_state():
+    if not os.path.exists(HOTSPOT_STATE_FILE):
+        return None
+    try:
+        with open(HOTSPOT_STATE_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return None
+
+def save_state(state):
+    if state is None:
+        if os.path.exists(HOTSPOT_STATE_FILE):
+            os.remove(HOTSPOT_STATE_FILE)
+    else:
+        with open(HOTSPOT_STATE_FILE, 'w') as f:
+            json.dump(state, f)
+
+def is_hotspot_running():
+    state = load_state()
+    if not state:
+        return False
+    hostapd_pid = state.get('hostapd_pid')
+    dnsmasq_pid = state.get('dnsmasq_pid')
+    if hostapd_pid:
+        try:
+            os.kill(hostapd_pid, 0)
+        except OSError:
+            return False
+    if dnsmasq_pid:
+        try:
+            os.kill(dnsmasq_pid, 0)
+        except OSError:
+            return False
+    return True
+
+def stop_hotspot_server():
+    global dnsmasq_monitor_thread, monitor_stop_flag
+    state = load_state()
+    if state:
+        hostapd_pid = state.get('hostapd_pid')
+        dnsmasq_pid = state.get('dnsmasq_pid')
+        if hostapd_pid:
+            try:
+                os.kill(hostapd_pid, signal.SIGTERM)
+            except:
+                pass
+        if dnsmasq_pid:
+            try:
+                os.kill(dnsmasq_pid, signal.SIGTERM)
+            except:
+                pass
+        monitor_stop_flag = True
+        time.sleep(0.5)
+        ap_iface = state.get('ap_iface')
+        wan_iface = state.get('wan_iface')
+        run_command("pkill hostapd; pkill dnsmasq", timeout=2)
+        if ap_iface:
+            run_command(f"ip addr flush dev {ap_iface}")
+            run_command(f"nmcli device set {ap_iface} managed yes 2>/dev/null", timeout=2)
+            run_command(f"ip link set {ap_iface} up")
+        if wan_iface:
+            run_command(f"iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE 2>/dev/null")
+            run_command(f"iptables -D FORWARD -i {ap_iface} -o {wan_iface} -j ACCEPT 2>/dev/null")
+            run_command(f"iptables -D FORWARD -i {wan_iface} -o {ap_iface} -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null")
+        run_command("sysctl -w net.ipv4.ip_forward=0 > /dev/null")
+        for f in ["/tmp/hostapd.conf", "/tmp/dnsmasq.conf"]:
+            if os.path.exists(f):
+                os.remove(f)
+        save_state(None)
+        with log_lock:
+            log_buffer.clear()
+        print("Hotspot server stopped.")
+    else:
+        print("No hotspot server is currently running.")
+
+def get_all_interfaces():
+    out, _, _ = run_command("ip -o link show | awk -F': ' '{print $2}'")
+    if not out:
+        return []
+    return [iface.strip() for iface in out.splitlines() if iface.strip() != "lo"]
+
+def get_wireless_iface():
+    for iface in get_all_interfaces():
+        if iface.startswith("wl"):
+            return iface
+    return None
+
+def write_hostapd_conf(ssid, password, ap_iface):
+    config = f"""interface={ap_iface}
+driver=nl80211
+ssid={ssid}
+hw_mode=g
+channel=6
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+"""
+    if password:
+        config += f"""wpa=2
+wpa_passphrase={password}
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+"""
+    else:
+        config += "wpa=0\n"
+    with open("/tmp/hostapd.conf", "w") as f:
+        f.write(config)
+
+def write_dnsmasq_conf(ap_iface, dhcp_range, gateway):
+    config = f"""interface={ap_iface}
+dhcp-range={dhcp_range}
+dhcp-option=3,{gateway}
+dhcp-option=6,{gateway}
+no-resolv
+log-dhcp
+"""
+    with open("/tmp/dnsmasq.conf", "w") as f:
+        f.write(config)
+
+def monitor_dnsmasq_output(proc):
+    global log_buffer, monitor_stop_flag
+    for line in iter(proc.stdout.readline, ''):
+        if monitor_stop_flag:
+            break
+        with log_lock:
+            log_buffer.append(line.rstrip())
+    proc.stdout.close()
+
+def start_hotspot_process(config):
+    global dnsmasq_monitor_thread, monitor_stop_flag, log_buffer
+    ap_iface = config['ap_iface']
+    wan_iface = config.get('wan_iface')
+    ip_wifi = config['ip_wifi']
+    ip_pool = config['ip_pool']
+    gateway = config['gateway']
+    ssid = config['ssid']
+    password = config['password']
+
+    stop_hotspot_server()
+    monitor_stop_flag = False
+    with log_lock:
+        log_buffer.clear()
+
+    run_command(f"systemctl stop hostapd dnsmasq 2>/dev/null")
+    run_command("pkill hostapd; pkill dnsmasq", timeout=2)
+    time.sleep(0.5)
+
+    subprocess.run(f"nmcli device set {ap_iface} managed no 2>/dev/null", shell=True)
+    write_hostapd_conf(ssid, password, ap_iface)
+    pool_parts = ip_pool.split("-")
+    dhcp_range = f"{pool_parts[0]},{pool_parts[1]}" if len(pool_parts) == 2 else "192.168.10.2,192.168.10.50"
+    write_dnsmasq_conf(ap_iface, dhcp_range, gateway)
+
+    if "/" in ip_wifi:
+        ip_net = ip_wifi
+    else:
+        ip_net = ip_wifi + "/24"
+    run_command(f"ip addr flush dev {ap_iface}")
+    run_command(f"ip addr add {ip_net} dev {ap_iface}")
+    run_command(f"ip link set {ap_iface} up")
+
+    if wan_iface:
+        run_command("sysctl -w net.ipv4.ip_forward=1 > /dev/null")
+        run_command(f"iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE")
+        run_command(f"iptables -A FORWARD -i {ap_iface} -o {wan_iface} -j ACCEPT")
+        run_command(f"iptables -A FORWARD -i {wan_iface} -o {ap_iface} -m state --state RELATED,ESTABLISHED -j ACCEPT")
+
+    hostapd_proc = subprocess.Popen(["hostapd", "/tmp/hostapd.conf"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)
+    dnsmasq_proc = subprocess.Popen(["dnsmasq", "-d", "-C", "/tmp/dnsmasq.conf"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    state = {
+        "hostapd_pid": hostapd_proc.pid,
+        "dnsmasq_pid": dnsmasq_proc.pid,
+        "ap_iface": ap_iface,
+        "wan_iface": wan_iface
+    }
+    save_state(state)
+
+    dnsmasq_monitor_thread = Thread(target=monitor_dnsmasq_output, args=(dnsmasq_proc,), daemon=True)
+    dnsmasq_monitor_thread.start()
+    return hostapd_proc, dnsmasq_proc
+
+def cleanup_hotspot_on_exit():
+    global monitor_stop_flag
+    monitor_stop_flag = True
+    state = load_state()
+    if state:
+        hostapd_pid = state.get('hostapd_pid')
+        dnsmasq_pid = state.get('dnsmasq_pid')
+        ap_iface = state.get('ap_iface')
+        wan_iface = state.get('wan_iface')
+        if hostapd_pid:
+            try:
+                os.kill(hostapd_pid, signal.SIGTERM)
+            except:
+                pass
+        if dnsmasq_pid:
+            try:
+                os.kill(dnsmasq_pid, signal.SIGTERM)
+            except:
+                pass
+        run_command("pkill hostapd; pkill dnsmasq", timeout=2)
+        if ap_iface:
+            run_command(f"ip addr flush dev {ap_iface}")
+            run_command(f"nmcli device set {ap_iface} managed yes 2>/dev/null")
+            run_command(f"ip link set {ap_iface} up")
+        if wan_iface:
+            run_command(f"iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE 2>/dev/null")
+            run_command(f"iptables -D FORWARD -i {ap_iface} -o {wan_iface} -j ACCEPT 2>/dev/null")
+            run_command(f"iptables -D FORWARD -i {wan_iface} -o {ap_iface} -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null")
+        run_command("sysctl -w net.ipv4.ip_forward=0 > /dev/null")
+        for f in ["/tmp/hostapd.conf", "/tmp/dnsmasq.conf"]:
+            if os.path.exists(f):
+                os.remove(f)
+        save_state(None)
+
+def auto_start_hotspot():
+    state = load_state()
+    if state:
+        configs = load_configs()
+        idx = state.get('config_index')
+        if idx is not None and 0 <= idx < len(configs):
+            print("Previously running hotspot detected. Restarting...")
+            config = configs[idx]
+            start_hotspot_process(config)
+            print(f"Hotspot '{config['ssid']}' restarted automatically.")
+        else:
+            save_state(None)
+
+def show_live_log():
+    if not is_hotspot_running():
+        print("Hotspot server is not running.")
+        return
+    print("Displaying live hotspot log (press Ctrl+C to return)...")
+    try:
+        while True:
+            time.sleep(1)
+            with log_lock:
+                if log_buffer:
+                    for line in log_buffer[-10:]:
+                        print(line)
+    except KeyboardInterrupt:
+        pass
+
+def view_connected_devices():
+    state = load_state()
+    if not state or not is_hotspot_running():
+        print("Hotspot server is not running.")
+        return
+    ap_iface = state.get('ap_iface')
+    if not ap_iface:
+        print("Interface not found in state.")
+        return
+
+    if IS_WINDOWS:
+        out, _, rc = run_command("netsh wlan show hostednetwork")
+        if rc == 0:
+            print(out)
+        else:
+            print("Could not retrieve connected clients on Windows.")
+    else:
+        out, _, rc = run_command(f"iw dev {ap_iface} station dump")
+        if rc == 0:
+            if out:
+                print(out)
+            else:
+                print("No connected devices or unsupported.")
+        else:
+            out, _, _ = run_command("arp -a")
+            if out:
+                print("Fallback ARP table:")
+                print(out)
+            else:
+                print("Could not retrieve connected devices.")
+
+def manage_hotspot():
+    while True:
+        configs = load_configs()
+        print("\n" + "="*50)
+        print("         HOTSPOT MANAGEMENT")
+        print("="*50)
+        if configs:
+            print("Saved configurations:")
+            print("-"*50)
+            print(f"{'No.':<4} {'SSID':<20} {'AP Iface':<10} {'IP WiFi':<15} {'Internet':<15}")
+            print("-"*50)
+            for i, cfg in enumerate(configs):
+                ssid = cfg.get('ssid', '?')[:18]
+                ap = cfg.get('ap_iface', '?')[:8]
+                ip = cfg.get('ip_wifi', '?')[:13]
+                wan = cfg.get('wan_iface', 'None') or 'None'
+                if len(wan) > 12:
+                    wan = wan[:12]
+                print(f"{i+1:<4} {ssid:<20} {ap:<10} {ip:<15} {wan:<15}")
+            print("-"*50)
+        else:
+            print("No saved configurations.")
+
+        choices = [
+            "Create WiFi Hotspot",
+            "Edit Configuration",
+            "Delete Configuration",
+            "Start Hotspot Server",
+            "Restart Hotspot Server",
+            "Stop Hotspot Server",
+            "Monitor Log",
+            "View Connected Devices",
+            "Back"
+        ]
+        action = questionary.select("Select action:", choices=choices, use_arrow_keys=True).ask()
+        if action == "Back":
+            break
+
+        if action == "Create WiFi Hotspot":
+            if IS_WINDOWS or IS_TERMUX:
+                print("Hotspot creation is only supported on Linux.")
+                continue
+            ap_iface = get_wireless_iface()
+            if not ap_iface:
+                print("No wireless interface found.")
+                continue
+            print(f"Using interface: {ap_iface}")
+            ssid = questionary.text("SSID:", default="MyHotspot").ask()
+            password = questionary.text("Password (leave blank for open):", default="").ask()
+            ip_wifi = questionary.text("IP WiFi (e.g., 192.168.10.1/24):", default="192.168.10.1/24").ask()
+            ip_pool = questionary.text("IP Pool (start-end, e.g., 192.168.10.2-192.168.10.50):", default="192.168.10.2-192.168.10.50").ask()
+            gateway = questionary.text("Gateway:", default=ip_wifi.split('/')[0]).ask()
+
+            ifaces = get_all_interfaces()
+            wan_choices = [iface for iface in ifaces if iface != ap_iface]
+            wan_choices.append("No internet (LAN only)")
+            wan_selection = questionary.select("Select internet source interface:", choices=wan_choices).ask()
+            if wan_selection == "No internet (LAN only)":
+                wan_iface = None
+            else:
+                wan_iface = wan_selection
+
+            config = {
+                "ap_iface": ap_iface,
+                "ssid": ssid,
+                "password": password,
+                "ip_wifi": ip_wifi,
+                "ip_pool": ip_pool,
+                "gateway": gateway,
+                "wan_iface": wan_iface
+            }
+            configs.append(config)
+            save_configs(configs)
+            print("Configuration saved.")
+
+        elif action == "Edit Configuration":
+            if not configs:
+                print("No configurations to edit.")
+                continue
+            idx = questionary.select("Select configuration to edit:",
+                                     choices=[f"{i+1}. {c['ssid']}" for i, c in enumerate(configs)]).ask()
+            idx = int(idx.split('.')[0]) - 1
+            cfg = configs[idx]
+            print(f"Editing '{cfg['ssid']}' (leave blank to keep current value)")
+            new_ssid = questionary.text("SSID:", default=cfg['ssid']).ask()
+            new_password = questionary.text("Password:", default=cfg.get('password', '')).ask()
+            new_ip_wifi = questionary.text("IP WiFi:", default=cfg.get('ip_wifi', '192.168.10.1/24')).ask()
+            new_ip_pool = questionary.text("IP Pool:", default=cfg.get('ip_pool', '192.168.10.2-192.168.10.50')).ask()
+            new_gateway = questionary.text("Gateway:", default=cfg.get('gateway', new_ip_wifi.split('/')[0])).ask()
+            ifaces = get_all_interfaces()
+            wan_choices = [iface for iface in ifaces if iface != cfg['ap_iface']]
+            wan_choices.append("No internet (LAN only)")
+            current_wan = cfg.get('wan_iface')
+            default_wan = current_wan if current_wan else "No internet (LAN only)"
+            new_wan = questionary.select("Internet source interface:", choices=wan_choices, default=default_wan).ask()
+            new_wan = None if new_wan == "No internet (LAN only)" else new_wan
+
+            cfg['ssid'] = new_ssid
+            cfg['password'] = new_password
+            cfg['ip_wifi'] = new_ip_wifi
+            cfg['ip_pool'] = new_ip_pool
+            cfg['gateway'] = new_gateway
+            cfg['wan_iface'] = new_wan
+            save_configs(configs)
+            print("Configuration updated.")
+
+        elif action == "Delete Configuration":
+            if not configs:
+                print("No configurations to delete.")
+                continue
+            idx = questionary.select("Select configuration to delete:",
+                                     choices=[f"{i+1}. {c['ssid']}" for i, c in enumerate(configs)]).ask()
+            idx = int(idx.split('.')[0]) - 1
+            configs.pop(idx)
+            save_configs(configs)
+            print("Configuration deleted.")
+
+        elif action == "Start Hotspot Server":
+            if IS_WINDOWS or IS_TERMUX:
+                print("Hotspot server can only run on Linux.")
+                continue
+            if is_hotspot_running():
+                print("A hotspot server is already running. Stop it first.")
+                continue
+            if not configs:
+                print("No saved configurations. Create one first.")
+                continue
+            idx = questionary.select("Select configuration to start:",
+                                     choices=[f"{i+1}. {c['ssid']}" for i, c in enumerate(configs)]).ask()
+            idx = int(idx.split('.')[0]) - 1
+            cfg = configs[idx]
+            print(f"Starting hotspot '{cfg['ssid']}'...")
+            try:
+                start_hotspot_process(cfg)
+                state = load_state()
+                state['config_index'] = idx
+                save_state(state)
+                print(f"Hotspot '{cfg['ssid']}' is now running.")
+            except Exception as e:
+                print(f"Failed to start hotspot: {e}")
+
+        elif action == "Restart Hotspot Server":
+            if IS_WINDOWS or IS_TERMUX:
+                print("Hotspot server can only run on Linux.")
+                continue
+            if not configs:
+                print("No saved configurations.")
+                continue
+            idx = questionary.select("Select configuration to restart:",
+                                     choices=[f"{i+1}. {c['ssid']}" for i, c in enumerate(configs)]).ask()
+            idx = int(idx.split('.')[0]) - 1
+            cfg = configs[idx]
+            print(f"Restarting hotspot '{cfg['ssid']}'...")
+            try:
+                stop_hotspot_server()
+                time.sleep(1)
+                start_hotspot_process(cfg)
+                state = load_state()
+                state['config_index'] = idx
+                save_state(state)
+                print(f"Hotspot '{cfg['ssid']}' restarted.")
+            except Exception as e:
+                print(f"Failed to restart hotspot: {e}")
+
+        elif action == "Stop Hotspot Server":
+            if IS_WINDOWS or IS_TERMUX:
+                print("Hotspot server only runs on Linux.")
+                continue
+            if is_hotspot_running():
+                stop_hotspot_server()
+            else:
+                print("No hotspot server is running.")
+
+        elif action == "Monitor Log":
+            if not is_hotspot_running():
+                print("Hotspot server is not running. Start it first.")
+                continue
+            show_live_log()
+
+        elif action == "View Connected Devices":
+            view_connected_devices()
 
 def main():
+    atexit.register(cleanup_hotspot_on_exit)
+    auto_start_hotspot()
+
     while True:
         print_header()
         print()
@@ -824,6 +1309,7 @@ def main():
                 "Ping Between Clients",
                 "Change IP (Static / Dynamic)",
                 "Check IP Addresses of All Clients on the Network",
+                "Manage Hotspot",
                 "Run Wireshark",
                 "Exit"
             ],
@@ -868,6 +1354,8 @@ def main():
             ubah_ip_menu()
         elif pilihan == "Check IP Addresses of All Clients on the Network":
             scan_network()
+        elif pilihan == "Manage Hotspot":
+            manage_hotspot()
         elif pilihan == "Run Wireshark":
             run_wireshark()
         elif pilihan == "Exit":
