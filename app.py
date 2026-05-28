@@ -15,6 +15,7 @@ import ipaddress
 import shutil
 import json
 import atexit
+from datetime import datetime
 
 try:
     import fcntl
@@ -63,6 +64,13 @@ log_buffer = []
 log_lock = Lock()
 dnsmasq_monitor_thread = None
 monitor_stop_flag = False
+
+COLORS = {
+    'INFO': '\033[32m',
+    'WARNING': '\033[33m',
+    'ERROR': '\033[31m',
+    'RESET': '\033[0m'
+}
 
 def run_command(command, timeout=5):
     try:
@@ -866,8 +874,19 @@ def is_hotspot_running():
             return False
     return True
 
+def log_hotspot(status, message):
+    global log_buffer
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = {'time': timestamp, 'status': status, 'message': message}
+    with log_lock:
+        log_buffer.append(entry)
+    if not monitor_stop_flag:
+        color = COLORS.get(status, '')
+        reset = COLORS['RESET']
+        print(f"[{timestamp}] {color}[{status}]{reset} {message}")
+
 def stop_hotspot_server():
-    global dnsmasq_monitor_thread, monitor_stop_flag
+    global dnsmasq_monitor_thread, monitor_stop_flag, log_buffer
     state = load_state()
     if state:
         hostapd_pid = state.get('hostapd_pid')
@@ -902,7 +921,7 @@ def stop_hotspot_server():
         save_state(None)
         with log_lock:
             log_buffer.clear()
-        print("Hotspot server stopped.")
+        log_hotspot("INFO", "Hotspot server stopped.")
     else:
         print("No hotspot server is currently running.")
 
@@ -917,6 +936,56 @@ def get_wireless_iface():
         if iface.startswith("wl"):
             return iface
     return None
+
+def validate_hotspot_config(config):
+    ip_wifi = config.get('ip_wifi', '')
+    ip_pool = config.get('ip_pool', '')
+    gateway = config.get('gateway', '')
+
+    try:
+        iface = ipaddress.IPv4Interface(ip_wifi)
+        net = iface.network
+        mask = iface.netmask
+    except Exception as e:
+        return False, f"Invalid IP WiFi configuration: {e}"
+
+    if not gateway:
+        return False, "Gateway is not set."
+    try:
+        gw_ip = ipaddress.IPv4Address(gateway)
+    except:
+        return False, "Invalid gateway IP address."
+    if gw_ip not in net:
+        return False, f"Gateway {gateway} is not in the subnet {net}."
+
+    if gw_ip == iface.ip:
+        pass
+    else:
+        pass
+
+    try:
+        start_str, end_str = ip_pool.split('-')
+        start_ip = ipaddress.IPv4Address(start_str.strip())
+        end_ip = ipaddress.IPv4Address(end_str.strip())
+    except:
+        return False, "IP pool format must be start-end (e.g., 192.168.1.10-192.168.1.50)."
+
+    if start_ip >= end_ip:
+        return False, "IP pool start must be less than end."
+
+    if start_ip not in net or end_ip not in net:
+        return False, f"IP pool range {start_ip}-{end_ip} is not within subnet {net}."
+
+    if iface.ip in ipaddress.summarize_address_range(start_ip, end_ip):
+        return False, f"AP IP address {iface.ip} must not be inside the DHCP pool range."
+
+    if gw_ip in ipaddress.summarize_address_range(start_ip, end_ip):
+        return False, f"Gateway IP {gw_ip} must not be inside the DHCP pool range."
+
+    if net.broadcast_address in ipaddress.summarize_address_range(start_ip, end_ip):
+        return False, f"Broadcast address {net.broadcast_address} must not be inside the pool."
+
+    return True, ""
 
 def write_hostapd_conf(ssid, password, ap_iface):
     config = f"""interface={ap_iface}
@@ -940,9 +1009,9 @@ rsn_pairwise=CCMP
     with open("/tmp/hostapd.conf", "w") as f:
         f.write(config)
 
-def write_dnsmasq_conf(ap_iface, dhcp_range, gateway):
+def write_dnsmasq_conf(ap_iface, dhcp_start, dhcp_end, netmask, gateway):
     config = f"""interface={ap_iface}
-dhcp-range={dhcp_range}
+dhcp-range={dhcp_start},{dhcp_end},{netmask},12h
 dhcp-option=3,{gateway}
 dhcp-option=6,{gateway}
 no-resolv
@@ -956,12 +1025,33 @@ def monitor_dnsmasq_output(proc):
     for line in iter(proc.stdout.readline, ''):
         if monitor_stop_flag:
             break
-        with log_lock:
-            log_buffer.append(line.rstrip())
+        stripped = line.rstrip()
+        if not stripped:
+            continue
+        if 'error' in stripped.lower():
+            status = 'ERROR'
+        elif 'warning' in stripped.lower():
+            status = 'WARNING'
+        else:
+            status = 'INFO'
+        log_hotspot(status, stripped)
     proc.stdout.close()
 
 def start_hotspot_process(config):
     global dnsmasq_monitor_thread, monitor_stop_flag, log_buffer
+    if IS_WINDOWS or IS_TERMUX:
+        log_hotspot("ERROR", "Hotspot server only supported on Linux.")
+        return None, None
+
+    if not shutil.which('hostapd') or not shutil.which('dnsmasq'):
+        log_hotspot("ERROR", "hostapd or dnsmasq not found. Please install them.")
+        return None, None
+
+    valid, err_msg = validate_hotspot_config(config)
+    if not valid:
+        log_hotspot("ERROR", f"Configuration error: {err_msg}")
+        return None, None
+
     ap_iface = config['ap_iface']
     wan_iface = config.get('wan_iface')
     ip_wifi = config['ip_wifi']
@@ -981,9 +1071,18 @@ def start_hotspot_process(config):
 
     subprocess.run(f"nmcli device set {ap_iface} managed no 2>/dev/null", shell=True)
     write_hostapd_conf(ssid, password, ap_iface)
-    pool_parts = ip_pool.split("-")
-    dhcp_range = f"{pool_parts[0]},{pool_parts[1]}" if len(pool_parts) == 2 else "192.168.10.2,192.168.10.50"
-    write_dnsmasq_conf(ap_iface, dhcp_range, gateway)
+
+    try:
+        start_str, end_str = ip_pool.split('-')
+        start_ip = ipaddress.IPv4Address(start_str.strip())
+        end_ip = ipaddress.IPv4Address(end_str.strip())
+        iface = ipaddress.IPv4Interface(ip_wifi)
+        netmask = str(iface.netmask)
+    except Exception as e:
+        log_hotspot("ERROR", f"Failed to process pool configuration: {e}")
+        return None, None
+
+    write_dnsmasq_conf(ap_iface, str(start_ip), str(end_ip), netmask, gateway)
 
     if "/" in ip_wifi:
         ip_net = ip_wifi
@@ -1013,6 +1112,7 @@ def start_hotspot_process(config):
 
     dnsmasq_monitor_thread = Thread(target=monitor_dnsmasq_output, args=(dnsmasq_proc,), daemon=True)
     dnsmasq_monitor_thread.start()
+    log_hotspot("INFO", f"Hotspot '{ssid}' started successfully.")
     return hostapd_proc, dnsmasq_proc
 
 def cleanup_hotspot_on_exit():
@@ -1072,8 +1172,13 @@ def show_live_log():
             time.sleep(1)
             with log_lock:
                 if log_buffer:
-                    for line in log_buffer[-10:]:
-                        print(line)
+                    for entry in log_buffer[-10:]:
+                        ts = entry['time']
+                        status = entry['status']
+                        msg = entry['message']
+                        color = COLORS.get(status, '')
+                        reset = COLORS['RESET']
+                        print(f"[{ts}] {color}[{status}]{reset} {msg}")
     except KeyboardInterrupt:
         pass
 
@@ -1179,6 +1284,10 @@ def manage_hotspot():
                 "gateway": gateway,
                 "wan_iface": wan_iface
             }
+            valid, err = validate_hotspot_config(config)
+            if not valid:
+                print(f"Error: {err}")
+                continue
             configs.append(config)
             save_configs(configs)
             print("Configuration saved.")
@@ -1205,12 +1314,20 @@ def manage_hotspot():
             new_wan = questionary.select("Internet source interface:", choices=wan_choices, default=default_wan).ask()
             new_wan = None if new_wan == "No internet (LAN only)" else new_wan
 
-            cfg['ssid'] = new_ssid
-            cfg['password'] = new_password
-            cfg['ip_wifi'] = new_ip_wifi
-            cfg['ip_pool'] = new_ip_pool
-            cfg['gateway'] = new_gateway
-            cfg['wan_iface'] = new_wan
+            updated_config = {
+                "ap_iface": cfg['ap_iface'],
+                "ssid": new_ssid,
+                "password": new_password,
+                "ip_wifi": new_ip_wifi,
+                "ip_pool": new_ip_pool,
+                "gateway": new_gateway,
+                "wan_iface": new_wan
+            }
+            valid, err = validate_hotspot_config(updated_config)
+            if not valid:
+                print(f"Error: {err}")
+                continue
+            cfg.update(updated_config)
             save_configs(configs)
             print("Configuration updated.")
 
@@ -1241,11 +1358,14 @@ def manage_hotspot():
             cfg = configs[idx]
             print(f"Starting hotspot '{cfg['ssid']}'...")
             try:
-                start_hotspot_process(cfg)
-                state = load_state()
-                state['config_index'] = idx
-                save_state(state)
-                print(f"Hotspot '{cfg['ssid']}' is now running.")
+                hostapd, dnsmasq = start_hotspot_process(cfg)
+                if hostapd and dnsmasq:
+                    state = load_state()
+                    state['config_index'] = idx
+                    save_state(state)
+                    print(f"Hotspot '{cfg['ssid']}' is now running.")
+                else:
+                    print("Failed to start hotspot. Check logs.")
             except Exception as e:
                 print(f"Failed to start hotspot: {e}")
 
@@ -1264,11 +1384,14 @@ def manage_hotspot():
             try:
                 stop_hotspot_server()
                 time.sleep(1)
-                start_hotspot_process(cfg)
-                state = load_state()
-                state['config_index'] = idx
-                save_state(state)
-                print(f"Hotspot '{cfg['ssid']}' restarted.")
+                hostapd, dnsmasq = start_hotspot_process(cfg)
+                if hostapd and dnsmasq:
+                    state = load_state()
+                    state['config_index'] = idx
+                    save_state(state)
+                    print(f"Hotspot '{cfg['ssid']}' restarted.")
+                else:
+                    print("Failed to restart hotspot.")
             except Exception as e:
                 print(f"Failed to restart hotspot: {e}")
 
