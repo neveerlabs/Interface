@@ -36,7 +36,7 @@ Fokus konfigurasi router MikroTik RB750 / RB941
   Software: OS, kernel, arsitektur, desktop environment, init system, BIOS, motherboard.
 
 - **Manajemen Hotspot WiFi**  
-  Buat, edit, dan hapus konfigurasi hotspot WiFi. aktifkan, hentikan, atau restart server hotspot kapan saja. Dilengkapi monitoring log DHCP secara langsung dan kemampuan untuk melihat detail perangkat yang sedang terhubung. Konfigurasi disimpan otomatis dan server hotspot dapat berjalan di latar belakang tanpa mengganggu menu utama. *(hanya tersedia di Linux dengan `hostapd` & `dnsmasq`)*
+  Buat, edit, dan hapus konfigurasi hotspot WiFi. aktifkan, hentikan, atau restart server hotspot kapan saja. Dilengkapi monitoring log DHCP secara langsung dan kemampuan untuk melihat detail perangkat yang sedang terhubung. Konfigurasi disimpan otomatis dan server hotspot dapat berjalan dengan baik *(hanya tersedia di Linux dengan `hostapd` & `dnsmasq`)*
 
 ---
 
@@ -143,8 +143,8 @@ Setelah script berjalan, input nya menggunakan keyboard scrollbar (gunakan panah
 * **Fitur Hotspot**:
   * Hanya berjalan di Linux dengan `hostapd` dan `dnsmasq` terinstal.
   * Jangan gunakan interface AP (wlan0) yang sama untuk koneksi sumber internet (ISP). Pilih interface lain (eth0, wlan1) atau pilih "No internet (LAN only)" karena akan terjadi bentrok.
-  * Server hotspot tetap berjalan saat Anda kembali ke menu utama atau menjalankan fitur lain. Untuk menghentikannya, gunakan menu `Stop Hotspot Server` atau keluar dari aplikasi.
   * Saat aplikasi ditutup (termasuk dengan `Ctrl+C`), server hotspot otomatis dimatikan dan semua aturan NAT dibersihkan.
+  * Apabila server hotspot berjalan, lalu keluar dari opsi `Hotspot Manager` maka server hotspot akan berhenti berjalan.
 
 ---
 
