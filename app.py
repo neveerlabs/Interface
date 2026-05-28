@@ -813,8 +813,8 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https:github.com/neveerlabs/Interface.git',
-            'Version: v2.9.5',
-            'Lost update: 4 Mei 2026'
+            'Version: v3.1.7',
+            'Lost update: 29 Mei 2026'
         ]
         for i in range(7):
             icon = icon_lines[i]
@@ -823,8 +823,8 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https:github.com/neveerlabs/Interface.git")
-        print("Version: v2.9.5")
-        print("Lost update: 4 Mei 2026")
+        print("Version: v3.1.7")
+        print("Lost update: 29 Mei 2026")
 
 def load_configs():
     if not os.path.exists(HOTSPOT_CONFIG_FILE):
