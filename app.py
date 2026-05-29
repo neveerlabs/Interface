@@ -818,7 +818,7 @@ def print_header():
         ]
         text_lines = [
             'Name: Interface',
-            'Repos: https:github.com/neveerlabs/Interface.git',
+            'Repos: https:github.com/neveerlabs/Interface',
             'Version: v3.1.9',
             'Lost update: 29 Mei 2026'
         ]
@@ -828,7 +828,7 @@ def print_header():
             print(f"{icon:<28}{text}")
     except Exception:
         print("Name: Interface")
-        print("Repos: https:github.com/neveerlabs/Interface.git")
+        print("Repos: https:github.com/neveerlabs/Interface")
         print("Version: v3.1.9")
         print("Lost update: 29 Mei 2026")
 
