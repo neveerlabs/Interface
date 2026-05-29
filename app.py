@@ -16,6 +16,9 @@ import shutil
 import json
 import atexit
 from datetime import datetime
+from pathlib import Path
+import urllib.request
+import urllib.error
 
 try:
     import fcntl
@@ -59,6 +62,9 @@ if IS_IOS:
 
 HOTSPOT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_configs.json")
 HOTSPOT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_state.json")
+VERSION_FILE = "version.txt"
+CHANGELOG_FILE = "changelog.txt"
+REPO_RAW_BASE = "https://raw.githubusercontent.com/neveerlabs/Interface/main"
 
 log_buffer = []
 log_lock = Lock()
@@ -813,7 +819,7 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https:github.com/neveerlabs/Interface.git',
-            'Version: v3.1.7',
+            'Version: v3.1.9',
             'Lost update: 29 Mei 2026'
         ]
         for i in range(7):
@@ -823,7 +829,7 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https:github.com/neveerlabs/Interface.git")
-        print("Version: v3.1.7")
+        print("Version: v3.1.9")
         print("Lost update: 29 Mei 2026")
 
 def load_configs():
@@ -1149,6 +1155,84 @@ def cleanup_hotspot_on_exit():
                 os.remove(f)
         save_state(None)
 
+def get_current_version():
+    script_dir = Path(__file__).resolve().parent
+    version_path = script_dir / VERSION_FILE
+    if version_path.exists():
+        return version_path.read_text().strip()
+    return None
+
+def get_remote_version():
+    url = f"{REPO_RAW_BASE}/{VERSION_FILE}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return resp.read().decode('utf-8').strip()
+    except:
+        return None
+
+def parse_version(ver_str):
+    try:
+        if ver_str.startswith('v'):
+            ver_str = ver_str[1:]
+        return tuple(map(int, ver_str.split('.')))
+    except:
+        return None
+
+def is_newer(remote, local):
+    rv = parse_version(remote)
+    lv = parse_version(local)
+    if rv is None or lv is None:
+        return remote != local
+    return rv > lv
+
+def check_and_update():
+    current = get_current_version()
+    if not current:
+        return
+
+    remote = get_remote_version()
+    if not remote:
+        return
+
+    if not is_newer(remote, current):
+        return
+
+    print(f"\nNew version available: {remote} (current: {current})")
+
+    changelog_url = f"{REPO_RAW_BASE}/{CHANGELOG_FILE}"
+    try:
+        with urllib.request.urlopen(changelog_url, timeout=5) as resp:
+            changelog = resp.read().decode('utf-8')
+            print("\n" + "="*50)
+            print("           WHAT'S NEW")
+            print("="*50)
+            print(changelog)
+            print("="*50)
+    except:
+        pass
+
+    if not questionary.confirm("Update now? (script will exit after update)").ask():
+        return
+
+    files_to_update = ["app.py", "requirements.txt", "README.md", VERSION_FILE, CHANGELOG_FILE]
+    script_dir = Path(__file__).resolve().parent
+
+    print("\nDownloading latest files...")
+    for filename in files_to_update:
+        url = f"{REPO_RAW_BASE}/{filename}"
+        target_path = script_dir / filename
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                content = resp.read()
+            target_path.write_bytes(content)
+            print(f"  ✔ {filename} updated.")
+        except Exception as e:
+            print(f"  ✖ Failed to download {filename}: {e}")
+            return
+
+    print("\nUpdate completed. Please restart the script (python3 app.py).")
+    sys.exit(0)
+
 def auto_start_hotspot():
     state = load_state()
     if state:
@@ -1415,6 +1499,7 @@ def manage_hotspot():
 
 def main():
     atexit.register(cleanup_hotspot_on_exit)
+    check_and_update()
     auto_start_hotspot()
 
     while True:
