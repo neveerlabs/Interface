@@ -1,0 +1,154 @@
+<div class="page-wrapper">
+  <div class="docs-page">
+    <div class="container">
+      <div class="section-tag" data-translate="docs_tag">Documentation</div>
+      <h1 class="section-title" data-translate="docs_title">Documentation</h1>
+      <p class="section-subtitle" data-translate="docs_subtitle">Everything you need to get Interface running on your machine.</p>
+
+      <div class="docs-layout" style="margin-top: 48px;">
+        <!-- Sidebar -->
+        <nav class="docs-sidebar">
+          <div class="docs-nav-title" data-translate="docs_nav_title">Contents</div>
+          <button class="docs-nav-item active" data-section="getting-started">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span data-translate="getting_started">Getting Started</span>
+          </button>
+          <button class="docs-nav-item" data-section="commands">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span data-translate="commands_reference">Commands Reference</span>
+          </button>
+          <button class="docs-nav-item" data-section="tutorials">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            <span data-translate="tutorials">Tutorials</span>
+          </button>
+        </nav>
+
+        <!-- Content -->
+        <div class="docs-content">
+
+          <!-- Getting Started -->
+          <div class="docs-section active" id="docs-getting-started">
+            <h2 class="docs-section-title" data-translate="getting_started">Getting Started</h2>
+            <p class="docs-section-subtitle" data-translate="docs_gs_subtitle">Follow these steps to install and run Interface on your system.</p>
+
+            <div class="docs-step">
+              <div class="docs-step-num">1</div>
+              <div class="docs-step-body">
+                <h4 data-translate="docs_step1_title">Clone the Repository</h4>
+                <p data-translate="docs_step1_desc">Download the source code from GitHub using git.</p>
+                <div class="code-block">
+                  <span class="cmd">git</span> clone https://github.com/neveerlabs/Interface.git<br>
+                  <span class="cmd">cd</span> Interface
+                </div>
+              </div>
+            </div>
+
+            <div class="docs-step">
+              <div class="docs-step-num">2</div>
+              <div class="docs-step-body">
+                <h4 data-translate="docs_step2_title">Install Dependencies</h4>
+                <p data-translate="docs_step2_desc">Install the required Python packages and system tools.</p>
+                <div class="code-block">
+                  <span class="comment"># Python dependency</span><br>
+                  <span class="cmd">pip</span> install questionary<br><br>
+                  <span class="comment"># Linux system tools (for full feature set)</span><br>
+                  <span class="cmd">sudo</span> apt install nmap hostapd dnsmasq wireshark
+                </div>
+              </div>
+            </div>
+
+            <div class="docs-step">
+              <div class="docs-step-num">3</div>
+              <div class="docs-step-body">
+                <h4 data-translate="docs_step3_title">Run Interface</h4>
+                <p data-translate="docs_step3_desc">Launch the script with root privileges for full functionality.</p>
+                <div class="code-block">
+                  <span class="cmd">sudo</span> python3 app.py
+                </div>
+              </div>
+            </div>
+
+            <div class="docs-step">
+              <div class="docs-step-num">4</div>
+              <div class="docs-step-body">
+                <h4 data-translate="docs_step4_title">Windows Setup</h4>
+                <p data-translate="docs_step4_desc">On Windows, run as Administrator. Some features require additional tools.</p>
+                <div class="code-block">
+                  <span class="comment"># Run as Administrator in CMD or PowerShell</span><br>
+                  <span class="cmd">python</span> app.py
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Commands Reference -->
+          <div class="docs-section" id="docs-commands">
+            <h2 class="docs-section-title" data-translate="commands_reference">Commands Reference</h2>
+            <p class="docs-section-subtitle" data-translate="docs_cmd_subtitle">All available tools and their descriptions.</p>
+
+            <table class="cmd-table">
+              <thead>
+                <tr>
+                  <th data-translate="cmd_col_name">Command</th>
+                  <th data-translate="cmd_col_desc">Description</th>
+                  <th data-translate="cmd_col_platform">Platform</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cmd-name">Network Scanner</span></td>
+                  <td data-translate="cmd_scanner">Scan local network for active hosts using ARP and nmap. Returns IP, MAC, hostname, and vendor.</td>
+                  <td>Linux, WSL</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">Hotspot Manager</span></td>
+                  <td data-translate="cmd_hotspot">Create/stop Wi-Fi hotspot. Configure SSID, password, channel, and DHCP range. Requires hostapd & dnsmasq.</td>
+                  <td>Linux</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">IP Changer</span></td>
+                  <td data-translate="cmd_ip">Change IP address of a network adapter. Supports static assignment and DHCP release/renew.</td>
+                  <td>Linux, Windows</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">Ping Tools</span></td>
+                  <td data-translate="cmd_ping">Send ICMP packets to a target host. Configurable count, interval, and packet size.</td>
+                  <td>All</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">Wireshark</span></td>
+                  <td data-translate="cmd_wireshark">Launch Wireshark GUI or tshark CLI for packet capture on a selected interface.</td>
+                  <td>Linux, Windows</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">Device Info</span></td>
+                  <td data-translate="cmd_device">Display system hardware info: CPU, RAM, OS, kernel version, and all network interfaces.</td>
+                  <td>All</td>
+                </tr>
+                <tr>
+                  <td><span class="cmd-name">Check Updates</span></td>
+                  <td data-translate="cmd_update">Connect to GitHub to check for new releases and display changelog for pending updates.</td>
+                  <td>All</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tutorials -->
+          <div class="docs-section" id="docs-tutorials">
+            <h2 class="docs-section-title" data-translate="tutorials">Tutorials</h2>
+            <p class="docs-section-subtitle" data-translate="docs_tut_subtitle">Step-by-step guides for common use cases.</p>
+            <div class="coming-soon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+              </svg>
+              <h3 data-translate="coming_soon">Coming Soon</h3>
+              <p data-translate="coming_soon_desc">Video tutorials and detailed walkthroughs are in progress. Check back soon or contribute on GitHub.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
