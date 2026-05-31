@@ -287,6 +287,7 @@ function initDocs(section) {
     targetButton.classList.add('active');
     const target = document.getElementById(targetId);
     if (target) target.classList.add('active');
+    if (targetSection === 'tutorials') renderTutorials();
   }
   document.querySelectorAll('.docs-nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -296,6 +297,7 @@ function initDocs(section) {
       btn.classList.add('active');
       const target = document.getElementById(`docs-${sectionName}`);
       if (target) target.classList.add('active');
+      if (sectionName === 'tutorials') renderTutorials();
     });
   });
 }
@@ -334,6 +336,86 @@ async function initChangelog() {
   } catch (e) {
     list.innerHTML = '<div class="page-error"><p>Failed to load changelog data.</p></div>';
   }
+}
+
+async function renderTutorials() {
+  const container = document.querySelector('#docs-tutorials');
+  if (!container) return;
+  try {
+    const res = await fetch('data/tutorials.json');
+    const tutorials = await res.json();
+    const grid = document.createElement('div');
+    grid.className = 'tutorials-grid';
+    if (tutorials && tutorials.length > 0) {
+      grid.innerHTML = tutorials.map(t => `
+        <div class="tutorial-card" data-url="${t.videoUrl}">
+          <div class="tutorial-thumb" style="background-image: url('${t.thumbnail}');"></div>
+          <div class="tutorial-info">
+            <h3 class="tutorial-title">${escapeHtml(t.title)}</h3>
+            <p class="tutorial-desc">${escapeHtml(t.description)}</p>
+          </div>
+        </div>
+      `).join('');
+      container.innerHTML = '';
+      container.appendChild(grid);
+      container.querySelectorAll('.tutorial-card').forEach(card => {
+        card.addEventListener('click', () => {
+          window.location.href = card.dataset.url;
+        });
+      });
+    } else {
+      const placeholderCard = document.createElement('div');
+      placeholderCard.className = 'tutorial-card tutorial-placeholder';
+      placeholderCard.innerHTML = `
+        <div class="tutorial-thumb placeholder-thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polygon points="10 8 16 12 10 16 10 8"/>
+            <path d="M12 2v2M12 20v2M2 12h2M20 12h2" stroke-dasharray="2 2"/>
+          </svg>
+        </div>
+        <div class="tutorial-info">
+          <h3 class="tutorial-title">${translations[currentLang].coming_soon || 'Coming Soon'}</h3>
+          <p class="tutorial-desc">${translations[currentLang].coming_soon_desc || 'Tutorial video akan segera hadir.'}</p>
+        </div>
+      `;
+      grid.appendChild(placeholderCard);
+      container.innerHTML = '';
+      container.appendChild(grid);
+    }
+  } catch (e) {
+    const grid = document.createElement('div');
+    grid.className = 'tutorials-grid';
+    const errorCard = document.createElement('div');
+    errorCard.className = 'tutorial-card tutorial-placeholder';
+    errorCard.innerHTML = `
+      <div class="tutorial-thumb placeholder-thumb">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="15" y1="9" x2="9" y2="15"/>
+          <line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>
+      </div>
+      <div class="tutorial-info">
+        <h3 class="tutorial-title">Failed to load</h3>
+        <p class="tutorial-desc">Please check your connection or try again later.</p>
+      </div>
+    `;
+    grid.appendChild(errorCard);
+    container.innerHTML = '';
+    container.appendChild(grid);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+    return c;
+  });
 }
 
 function setupReveal() {
