@@ -372,3 +372,68 @@
   .about-full { grid-column: 1; }
   .docs-page, .changelog-page, .about-page { padding: 48px 0; }
 }
+
+.tutorials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+.tutorial-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.tutorial-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+.tutorial-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-2);
+}
+.tutorial-info {
+  padding: 16px;
+}
+.tutorial-title {
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.tutorial-desc {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.tutorial-card.tutorial-placeholder {
+  cursor: default;
+  opacity: 0.7;
+}
+.tutorial-card.tutorial-placeholder:hover {
+  transform: none;
+  box-shadow: none;
+}
+.placeholder-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+}
+.placeholder-thumb svg {
+  width: 48px;
+  height: 48px;
+  color: var(--text-3);
+  opacity: 0.5;
+}
