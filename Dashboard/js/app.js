@@ -6,7 +6,7 @@ const translations = {
     ping_tools: "Ping Tools", ip_changer: "IP Changer",
     network_scanner: "Network Scanner", hotspot_manager: "Hotspot Manager",
     wireshark: "Wireshark",
-    hero_badge: "v3.1.9 — Now Available",
+    hero_badge: "v3.2.2 — Now Available",
     hero_title: "Network\nCommand\nCenter",
     hero_subtitle: "Simplify network diagnostics, scanning, and management with a clean, modern terminal toolkit.",
     get_started: "Get Started", github: "GitHub",
