@@ -66,7 +66,6 @@ HOTSPOT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "
 HOTSPOT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_state.json")
 CHANGELOG_FILE = "changelog.json"
 REPO_RAW_BASE = "https://raw.githubusercontent.com/neveerlabs/Interface/main"
-
 APP_VERSION = "3.2.2"
 
 log_buffer = []
@@ -1196,7 +1195,7 @@ def check_and_update():
     if not is_newer(remote, current):
         return
 
-    print(f"\nNew version available: {remote} (current: {current})")
+    print(f"\nNew version available: {remote} (current: v{current})")
 
     try:
         changelog_url = f"{REPO_RAW_BASE}/{CHANGELOG_FILE}"
