@@ -37,6 +37,7 @@ IS_WSL = False
 IS_TERMUX = False
 IS_IOS = False
 IS_LINUX = False
+IS_MAC = False
 IS_UNIX = False
 
 if hasattr(sys, 'getandroidapilevel'):
@@ -54,6 +55,7 @@ if not IS_WINDOWS:
     except:
         pass
     IS_LINUX = 'linux' in sys.platform
+    IS_MAC = 'darwin' in sys.platform
     IS_IOS = 'ios' in sys.platform
 
 if IS_IOS:
@@ -62,9 +64,10 @@ if IS_IOS:
 
 HOTSPOT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_configs.json")
 HOTSPOT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspot_state.json")
-VERSION_FILE = "version.txt"
-CHANGELOG_FILE = "changelog.txt"
+CHANGELOG_FILE = "changelog.json"
 REPO_RAW_BASE = "https://raw.githubusercontent.com/neveerlabs/Interface/main"
+
+APP_VERSION = "3.2.2"
 
 log_buffer = []
 log_lock = Lock()
@@ -819,7 +822,7 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https://github.com/neveerlabs/Interface',
-            'Version: v3.2.0',
+            f'Version: {APP_VERSION}',
             'e-Book: https://neveerlabs.github.io/Interface',
             'Lost update: 11 Juny 2026'
         ]
@@ -830,7 +833,7 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https://github.com/neveerlabs/Interface")
-        print("Version: v3.2.0")
+        print(f"Version: {APP_VERSION}")
         print("e-Book: https://neveerlabs.github.io/Interface")
         print("Lost update: 11 Juny 2026")
 
@@ -965,11 +968,6 @@ def validate_hotspot_config(config):
         return False, "Invalid gateway IP address."
     if gw_ip not in net:
         return False, f"Gateway {gateway} is not in the subnet {net}."
-
-    if gw_ip == iface.ip:
-        pass
-    else:
-        pass
 
     try:
         start_str, end_str = ip_pool.split('-')
@@ -1158,19 +1156,22 @@ def cleanup_hotspot_on_exit():
         save_state(None)
 
 def get_current_version():
-    script_dir = Path(__file__).resolve().parent
-    version_path = script_dir / VERSION_FILE
-    if version_path.exists():
-        return version_path.read_text().strip()
-    return None
+    try:
+        return APP_VERSION
+    except:
+        return "0.0.0"
 
 def get_remote_version():
-    url = f"{REPO_RAW_BASE}/{VERSION_FILE}"
+    url = f"{REPO_RAW_BASE}/app.py"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            return resp.read().decode('utf-8').strip()
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            content = resp.read().decode('utf-8')
+        match = re.search(r"Version:\s*(v?\d+\.\d+\.\d+)", content)
+        if match:
+            return match.group(1)
     except:
-        return None
+        pass
+    return None
 
 def parse_version(ver_str):
     try:
@@ -1189,34 +1190,42 @@ def is_newer(remote, local):
 
 def check_and_update():
     current = get_current_version()
-    if not current:
-        return
-
     remote = get_remote_version()
-    if not remote:
+    if not remote or not current:
         return
-
     if not is_newer(remote, current):
         return
 
     print(f"\nNew version available: {remote} (current: {current})")
 
-    changelog_url = f"{REPO_RAW_BASE}/{CHANGELOG_FILE}"
     try:
-        with urllib.request.urlopen(changelog_url, timeout=5) as resp:
-            changelog = resp.read().decode('utf-8')
+        changelog_url = f"{REPO_RAW_BASE}/{CHANGELOG_FILE}"
+        with urllib.request.urlopen(changelog_url, timeout=10) as resp:
+            changelog_data = json.loads(resp.read().decode('utf-8'))
+        changes = []
+        if isinstance(changelog_data, list):
+            for entry in changelog_data:
+                if entry.get('version') == remote:
+                    changes = entry.get('changes', [])
+                    break
+        elif isinstance(changelog_data, dict):
+            ver_entry = changelog_data.get(remote)
+            if ver_entry:
+                changes = ver_entry.get('changes', [])
+        if changes:
             print("\n" + "="*50)
             print("           WHAT'S NEW")
             print("="*50)
-            print(changelog)
+            for c in changes:
+                print(f"  - {c}")
             print("="*50)
-    except:
+    except Exception as e:
         pass
 
     if not questionary.confirm("Update now? (script will exit after update)").ask():
         return
 
-    files_to_update = ["app.py", "requirements.txt", "README.md", VERSION_FILE, CHANGELOG_FILE]
+    files_to_update = ["app.py", "requirements.txt", "README.md", CHANGELOG_FILE]
     script_dir = Path(__file__).resolve().parent
 
     print("\nDownloading latest files...")
@@ -1500,6 +1509,8 @@ def manage_hotspot():
             view_connected_devices()
 
 def main():
+    global APP_VERSION
+    APP_VERSION = get_current_version()
     atexit.register(cleanup_hotspot_on_exit)
     check_and_update()
     auto_start_hotspot()
@@ -1517,6 +1528,7 @@ def main():
                 "Ping Router / Gateway",
                 "Ping Between Router",
                 "Ping Between Clients",
+                "Command Shell",
                 "Change IP (Static / Dynamic)",
                 "Check IP Addresses of All Clients on the Network",
                 "Manage Hotspot",
@@ -1560,6 +1572,24 @@ def main():
                     print("Invalid IP address.")
                 else:
                     ping_target(target)
+        elif pilihan == "Command Shell":
+            cmd = questionary.text("Enter shell command:").ask()
+            if cmd:
+                print(f"Executing: {cmd}")
+                try:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print(f"Error output:\n{result.stderr}")
+                    if result.returncode != 0:
+                        print(f"Command exited with code {result.returncode}")
+                except subprocess.TimeoutExpired:
+                    print("Command timed out.")
+                except Exception as e:
+                    print(f"Failed to execute command: {e}")
+            else:
+                print("No command entered.")
         elif pilihan == "Change IP (Static / Dynamic)":
             ubah_ip_menu()
         elif pilihan == "Check IP Addresses of All Clients on the Network":
