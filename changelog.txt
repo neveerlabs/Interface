@@ -1,6 +1,0 @@
-v3.1.9
-- Fixed hotspot DHCP range validation and configuration
-- Added colored log output (INFO/WARNING/ERROR) in hotspot monitor
-- Added automatic update checker with changelog display
-- Improved hotspot management stability and error handling
-- Updated hotspot stop to fully reset interfaces and NAT rules

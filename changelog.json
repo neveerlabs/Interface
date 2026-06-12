@@ -1,0 +1,26 @@
+[
+  {
+    "version": "v3.1.9",
+    "changes": [
+      "Fixed hotspot DHCP range validation and configuration",
+      "Added colored log output (INFO/WARNING/ERROR) in hotspot monitor",
+      "Added automatic update checker with changelog display",
+      "Improved hotspot management stability and error handling",
+      "Updated hotspot stop to fully reset interfaces and NAT rules"
+    ]
+  },
+  {
+    "version": "v3.2.2",
+    "changes": [
+      "Version detection now uses APP_VERSION variable instead of reading version.txt",
+      "Changelog format changed to JSON (changelog.json) for better data structure",
+      "Update prompt shows only the new version's changelog entries",
+      "Added macOS (darwin) detection alongside existing Linux, Windows, WSL, and Termux",
+      "Removed dependency on external version.txt file; all version info stored in app.py",
+      "Enhanced error handling and added multiple try-except blocks for robustness",
+      "Fixed 'current: 0.0.0' bug when checking for updates with f-string version",
+      "Improved cross-platform compatibility for iOS, WSL, and macOS",
+      "Maintained full backward compatibility with all existing features"
+    ]
+  }
+]
