@@ -811,16 +811,17 @@ def print_header():
             '   *               *',
             '  *  *           *  *',
             ' *  *  *  (*)  *  *  *',
-            ' *  *  *  /**  *  *  *',
+            ' *  *  *  /*\\  *  *  *',
             '  *  *   /***\\   *  *',
             '   *    /*****\\    *',
             '       /*******\\'
         ]
         text_lines = [
             'Name: Interface',
-            'Repos: https:github.com/neveerlabs/Interface',
-            'Version: v3.1.9',
-            'Lost update: 29 Mei 2026'
+            'Repos: https://github.com/neveerlabs/Interface',
+            'Version: v3.2.0',
+            'e-Book: https://neveerlabs.github.io/Interface',
+            'Lost update: 11 Juny 2026'
         ]
         for i in range(7):
             icon = icon_lines[i]
@@ -828,9 +829,10 @@ def print_header():
             print(f"{icon:<28}{text}")
     except Exception:
         print("Name: Interface")
-        print("Repos: https:github.com/neveerlabs/Interface")
-        print("Version: v3.1.9")
-        print("Lost update: 29 Mei 2026")
+        print("Repos: https://github.com/neveerlabs/Interface")
+        print("Version: v3.2.0")
+        print("e-Book: https://neveerlabs.github.io/Interface")
+        print("Lost update: 11 Juny 2026")
 
 def load_configs():
     if not os.path.exists(HOTSPOT_CONFIG_FILE):
@@ -1510,7 +1512,7 @@ def main():
             choices=[
                 "Display Network Specifications",
                 "Display Device Specifications",
-                "Ping DNS (8.8.8.8)",
+                "Ping DNS 8.8.8.8 (DNS Google)",
                 "Ping Google (google.com)",
                 "Ping Router / Gateway",
                 "Ping Between Router",
