@@ -822,7 +822,7 @@ def print_header():
         text_lines = [
             'Name: Interface',
             'Repos: https://github.com/neveerlabs/Interface',
-            f'Version: {APP_VERSION}',
+            f'Version: v3.2.2',
             'e-Book: https://neveerlabs.github.io/Interface',
             'Lost update: 11 Juny 2026'
         ]
@@ -833,7 +833,7 @@ def print_header():
     except Exception:
         print("Name: Interface")
         print("Repos: https://github.com/neveerlabs/Interface")
-        print(f"Version: {APP_VERSION}")
+        print(f"Version: v3.2.2")
         print("e-Book: https://neveerlabs.github.io/Interface")
         print("Lost update: 11 Juny 2026")
 
