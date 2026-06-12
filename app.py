@@ -1235,7 +1235,7 @@ def check_and_update():
             with urllib.request.urlopen(url, timeout=10) as resp:
                 content = resp.read()
             target_path.write_bytes(content)
-            print(f"  ✔ {filename} updated.")
+            print(f"  ✔ {filename} success updated")
         except Exception as e:
             print(f"  ✖ Failed to download {filename}: {e}")
             return
