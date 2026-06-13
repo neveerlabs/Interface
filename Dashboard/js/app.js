@@ -90,7 +90,7 @@ const translations = {
     ping_tools: "Alat Ping", ip_changer: "Pengubah IP",
     network_scanner: "Pemindai Jaringan", hotspot_manager: "Manajer Hotspot",
     wireshark: "Wireshark",
-    hero_badge: "v3.1.9 — Tersedia Sekarang",
+    hero_badge: "v3.2.2 — Tersedia Sekarang",
     hero_subtitle: "Sederhanakan diagnostik, pemindaian, dan manajemen jaringan dengan perangkat terminal modern yang bersih.",
     get_started: "Mulai", github: "GitHub",
     stat_tools: "Alat", stat_platforms: "Platform", stat_license: "Lisensi",
